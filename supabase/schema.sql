@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS public.meals (
   user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   food_name TEXT NOT NULL,
   image_url TEXT,
+  meal_type TEXT DEFAULT 'Snack' NOT NULL CHECK (meal_type IN ('Breakfast', 'Lunch', 'Dinner', 'Snack')),
   calories INTEGER NOT NULL CHECK (calories >= 0),
   protein INTEGER NOT NULL CHECK (protein >= 0),
   carbs INTEGER NOT NULL CHECK (carbs >= 0),

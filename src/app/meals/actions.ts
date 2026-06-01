@@ -6,26 +6,27 @@ import { createClient } from "@/lib/supabase/server";
 export interface MealData {
   food_name: string;
   image_url?: string;
+  meal_type?: "Breakfast" | "Lunch" | "Dinner" | "Snack";
   calories: number;
   protein: number;
   carbs: number;
   fat: number;
 }
 
+// 1. Save a new meal log
 export async function saveMealLog(meal: MealData) {
   const supabase = await createClient();
 
-  // 1. Fetch authenticated user session safely on the server
   const { data: { user }, error: userError } = await supabase.auth.getUser();
   if (userError || !user) {
     throw new Error("User session not found. Please log in.");
   }
 
-  // 2. Insert record into PostgreSQL 'meals' table
   const { data, error } = await supabase.from("meals").insert({
     user_id: user.id,
     food_name: meal.food_name,
     image_url: meal.image_url || null,
+    meal_type: meal.meal_type || "Snack",
     calories: meal.calories,
     protein: meal.protein,
     carbs: meal.carbs,
@@ -37,11 +38,9 @@ export async function saveMealLog(meal: MealData) {
     throw new Error(`Failed to save meal: ${error.message}`);
   }
 
-  // 3. Update User Streak status if logging first meal today
+  // Update User Streak status if logging first meal today
   try {
     const todayStr = new Date().toISOString().split("T")[0];
-    
-    // Fetch user profile streak info
     const { data: streakData } = await supabase
       .from("streaks")
       .select("current_streak, longest_streak, last_logged_date")
@@ -54,16 +53,13 @@ export async function saveMealLog(meal: MealData) {
       const lastLogged = streakData.last_logged_date;
 
       if (lastLogged !== todayStr) {
-        // Logged yesterday?
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split("T")[0];
 
         if (lastLogged === yesterdayStr) {
-          // Increment streak
           currentStreak += 1;
         } else if (lastLogged === null || lastLogged < yesterdayStr) {
-          // Reset streak to 1
           currentStreak = 1;
         }
 
@@ -71,7 +67,6 @@ export async function saveMealLog(meal: MealData) {
           longestStreak = currentStreak;
         }
 
-        // Update streak details
         await supabase
           .from("streaks")
           .update({
@@ -84,11 +79,73 @@ export async function saveMealLog(meal: MealData) {
       }
     }
   } catch (streakErr) {
-    // Non-blocking error for streak updates
     console.error("Failed to calculate streak update:", streakErr);
   }
 
-  // 4. Revalidate cache endpoints to trigger automatic UI updates
+  revalidatePath("/dashboard");
+  revalidatePath("/diary");
+  revalidatePath("/analytics");
+  revalidatePath("/streaks");
+
+  return { success: true, data };
+}
+
+// 2. Delete an existing meal log
+export async function deleteMealLog(mealId: string) {
+  const supabase = await createClient();
+
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  if (userError || !user) {
+    throw new Error("Unauthorized. Please log in.");
+  }
+
+  const { error } = await supabase
+    .from("meals")
+    .delete()
+    .eq("id", mealId)
+    .eq("user_id", user.id); // Guard to ensure user deletes their own row
+
+  if (error) {
+    console.error("Database delete error:", error);
+    throw new Error(`Failed to delete meal: ${error.message}`);
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/diary");
+  revalidatePath("/analytics");
+  revalidatePath("/streaks");
+
+  return { success: true };
+}
+
+// 3. Update an existing meal log
+export async function updateMealLog(mealId: string, updated: Partial<MealData>) {
+  const supabase = await createClient();
+
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  if (userError || !user) {
+    throw new Error("Unauthorized. Please log in.");
+  }
+
+  const { data, error } = await supabase
+    .from("meals")
+    .update({
+      food_name: updated.food_name,
+      meal_type: updated.meal_type,
+      calories: updated.calories,
+      protein: updated.protein,
+      carbs: updated.carbs,
+      fat: updated.fat,
+    })
+    .eq("id", mealId)
+    .eq("user_id", user.id)
+    .select();
+
+  if (error) {
+    console.error("Database update error:", error);
+    throw new Error(`Failed to update meal: ${error.message}`);
+  }
+
   revalidatePath("/dashboard");
   revalidatePath("/diary");
   revalidatePath("/analytics");
