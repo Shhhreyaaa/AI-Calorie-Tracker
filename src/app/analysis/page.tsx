@@ -2,147 +2,307 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import { Check, Edit3, ArrowLeft, RefreshCw, HelpCircle } from "lucide-react";
 import Link from "next/link";
+import { 
+  ArrowLeft, 
+  Check, 
+  Sparkles, 
+  HelpCircle,
+  AlertCircle,
+  X,
+  Plus,
+  Sliders,
+  CheckCircle,
+  Percent
+} from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export default function AnalysisPage() {
+  const router = useRouter();
+
+  // State management
+  const [mealName, setMealName] = useState("Avocado Salmon Salad");
   const [calories, setCalories] = useState(420);
   const [protein, setProtein] = useState(28);
   const [carbs, setCarbs] = useState(12);
   const [fat, setFat] = useState(18);
+  const [confidence] = useState(0.94); // 94% confidence
+  const [ingredients, setIngredients] = useState([
+    "Fresh Smoked Salmon",
+    "Ripe Avocado Chunks",
+    "Organic Baby Spinach",
+    "Extra Virgin Olive Oil",
+    "Toasted Sesame Seeds"
+  ]);
 
-  const [isSaved, setIsSaved] = useState(false);
+  const [newIngredient, setNewIngredient] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [isLogged, setIsLogged] = useState(false);
+
+  // Remove an ingredient tag
+  const removeIngredient = (index: number) => {
+    setIngredients(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Add a new ingredient tag
+  const addIngredient = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newIngredient.trim()) {
+      setIngredients(prev => [...prev, newIngredient.trim()]);
+      setNewIngredient("");
+    }
+  };
+
+  const handleConfirmLog = () => {
+    setIsLogged(true);
+    setTimeout(() => {
+      router.push("/dashboard");
+    }, 1800);
+  };
 
   return (
     <div className="space-y-6">
       
-      {/* Header Info */}
-      <div className="flex items-center gap-3">
-        <Link href="/camera" className="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
-          <ArrowLeft className="w-4 h-4" />
-        </Link>
-        <div>
-          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">AI Report</span>
-          <h2 className="font-outfit text-2xl font-bold tracking-tight">Analysis Results</h2>
+      {/* Toast Alert on Successful Log */}
+      {isLogged && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#0F172A] text-white px-5 py-3 rounded-2xl shadow-xl text-xs font-semibold flex items-center gap-2 animate-bounce">
+          <CheckCircle className="w-5 h-5 text-brand-green fill-brand-green/10" />
+          <span>Meal logged successfully! Redirecting...</span>
         </div>
+      )}
+
+      {/* Header Bar */}
+      <div className="flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <Link 
+            href="/camera" 
+            className="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-slate-205 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Scan Report</span>
+            <h2 className="font-outfit text-2xl font-bold tracking-tight">AI Analysis</h2>
+          </div>
+        </div>
+        
+        {/* Toggle Edit Mode */}
+        <button 
+          onClick={() => setIsEditing(!isEditing)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+            isEditing 
+              ? "bg-brand-green/10 text-brand-green border-brand-green/20" 
+              : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-350 border-slate-100 dark:border-slate-800/80 hover:bg-slate-50"
+          }`}
+        >
+          <Sliders className="w-3.5 h-3.5" />
+          <span>{isEditing ? "View Summary" : "Adjust"}</span>
+        </button>
       </div>
 
-      {/* Main Analysis Container */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[32px] overflow-hidden shadow-premium dark:shadow-premium-dark">
-        <div className="relative h-48 w-full">
+      {/* Main Container */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[32px] overflow-hidden shadow-premium dark:shadow-premium-dark space-y-6 pb-6">
+        
+        {/* 1. Meal Image Header Banner */}
+        <div className="relative h-56 w-full">
           <Image 
             src="/images/salmon_salad.png" 
-            alt="Avocado Salmon Salad" 
+            alt="Recognized Meal" 
             fill 
             className="object-cover"
+            priority
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-          <div className="absolute bottom-4 left-4 text-white">
-            <h3 className="font-outfit text-lg font-bold">Avocado Salmon Salad</h3>
-            <p className="text-[10px] text-slate-350 mt-0.5">Estimated by Gemini 1.5 Pro</p>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+          
+          <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end text-white">
+            <div className="space-y-0.5 max-w-[70%]">
+              {isEditing ? (
+                <input 
+                  type="text" 
+                  value={mealName}
+                  onChange={(e) => setMealName(e.target.value)}
+                  className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl px-2.5 py-1 font-outfit text-lg font-bold text-white outline-none focus:border-brand-green w-full"
+                />
+              ) : (
+                <h3 className="font-outfit text-xl font-bold tracking-tight truncate">{mealName}</h3>
+              )}
+              <p className="text-[10px] text-slate-300 font-semibold tracking-wider uppercase flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-brand-green fill-brand-green/20 animate-pulse" />
+                Gemini Vision Analysis
+              </p>
+            </div>
+            
+            {/* Confidence Score Pill */}
+            <div className="bg-white/10 backdrop-blur-md border border-white/20 px-2.5 py-1.5 rounded-xl text-center shrink-0">
+              <span className="text-[8px] text-slate-300 font-bold uppercase tracking-wider block">Confidence</span>
+              <span className="font-outfit text-xs font-bold text-brand-green flex items-center justify-center gap-0.5">
+                <Percent className="w-3 h-3" /> {Math.round(confidence * 100)}%
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Adjustments Form */}
-        <div className="p-5 space-y-4">
-          <div>
-            <span className="text-[10px] text-slate-450 font-bold uppercase tracking-wider">Adjustment Panel</span>
-            <p className="text-xs text-slate-400 mt-0.5">Drag to modify estimated values if needed.</p>
-          </div>
+        {/* Adjustments Screen vs Static Summary */}
+        <div className="px-5 space-y-6">
+          
+          {isEditing ? (
+            /* Editing Sliders Container */
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span className="text-slate-500">Calories (kcal)</span>
+                  <span className="font-outfit font-bold text-brand-green">{calories} kcal</span>
+                </div>
+                <input 
+                  type="range" min="100" max="1000" value={calories} 
+                  onChange={(e) => setCalories(Number(e.target.value))}
+                  className="w-full accent-brand-green h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
 
-          {/* Calorie slider */}
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs font-semibold">
-              <span className="text-slate-500">Calories (kcal)</span>
-              <span className="font-outfit font-bold text-brand-green">{calories} kcal</span>
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span className="text-slate-500">Protein (g)</span>
+                  <span className="font-outfit font-bold text-brand-green">{protein}g</span>
+                </div>
+                <input 
+                  type="range" min="0" max="100" value={protein} 
+                  onChange={(e) => setProtein(Number(e.target.value))}
+                  className="w-full accent-brand-green h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span className="text-slate-500">Carbs (g)</span>
+                  <span className="font-outfit font-bold text-brand-sky">{carbs}g</span>
+                </div>
+                <input 
+                  type="range" min="0" max="150" value={carbs} 
+                  onChange={(e) => setCarbs(Number(e.target.value))}
+                  className="w-full accent-brand-sky h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span className="text-slate-500">Fat (g)</span>
+                  <span className="font-outfit font-bold text-brand-coral">{fat}g</span>
+                </div>
+                <input 
+                  type="range" min="0" max="80" value={fat} 
+                  onChange={(e) => setFat(Number(e.target.value))}
+                  className="w-full accent-brand-coral h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
             </div>
-            <input 
-              type="range" 
-              min="100" 
-              max="1000" 
-              value={calories}
-              onChange={(e) => setCalories(Number(e.target.value))}
-              className="w-full accent-brand-green h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
-            />
-          </div>
+          ) : (
+            /* Premium Summary Display */
+            <div className="space-y-6">
+              
+              {/* Core Calorie Statistic Block */}
+              <div className="bg-slate-50/50 dark:bg-slate-850/40 border border-slate-100/60 dark:border-slate-800/40 rounded-2xl p-4 flex justify-between items-center">
+                <div>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Estimated Energy</span>
+                  <div className="font-outfit text-3xl font-extrabold tracking-tight text-brand-green mt-1">
+                    {calories} <span className="text-sm font-medium text-slate-400">kcal</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="bg-brand-green/10 text-brand-green text-[10px] font-bold px-2 py-0.5 rounded-lg block">
+                    Deficit Safe
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-semibold block mt-1">21% of daily budget</span>
+                </div>
+              </div>
 
-          {/* Protein slider */}
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs font-semibold">
-              <span className="text-slate-500">Protein (g)</span>
-              <span className="font-outfit font-bold text-brand-green">{protein}g</span>
+              {/* Macro stats blocks */}
+              <div className="grid grid-cols-3 gap-3">
+                {/* Protein */}
+                <div className="bg-slate-50/50 dark:bg-slate-850/40 border border-slate-100/60 dark:border-slate-800/40 rounded-2xl p-3 flex flex-col items-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Protein</span>
+                  <span className="font-outfit text-base font-bold mt-1 text-slate-800 dark:text-slate-205">{protein}g</span>
+                  <div className="w-10 bg-slate-100 dark:bg-slate-800 h-1 rounded-full overflow-hidden mt-2">
+                    <div className="bg-brand-green h-full rounded-full" style={{ width: `${(protein/150)*100}%` }} />
+                  </div>
+                </div>
+                {/* Carbs */}
+                <div className="bg-slate-50/50 dark:bg-slate-850/40 border border-slate-100/60 dark:border-slate-800/40 rounded-2xl p-3 flex flex-col items-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Carbs</span>
+                  <span className="font-outfit text-base font-bold mt-1 text-slate-800 dark:text-slate-205">{carbs}g</span>
+                  <div className="w-10 bg-slate-100 dark:bg-slate-800 h-1 rounded-full overflow-hidden mt-2">
+                    <div className="bg-brand-sky h-full rounded-full" style={{ width: `${(carbs/200)*100}%` }} />
+                  </div>
+                </div>
+                {/* Fat */}
+                <div className="bg-slate-50/50 dark:bg-slate-850/40 border border-slate-100/60 dark:border-slate-800/40 rounded-2xl p-3 flex flex-col items-center">
+                  <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Fat</span>
+                  <span className="font-outfit text-base font-bold mt-1 text-slate-800 dark:text-slate-205">{fat}g</span>
+                  <div className="w-10 bg-slate-100 dark:bg-slate-800 h-1 rounded-full overflow-hidden mt-2">
+                    <div className="bg-brand-coral h-full rounded-full" style={{ width: `${(fat/65)*100}%` }} />
+                  </div>
+                </div>
+              </div>
+
             </div>
-            <input 
-              type="range" 
-              min="5" 
-              max="80" 
-              value={protein}
-              onChange={(e) => setProtein(Number(e.target.value))}
-              className="w-full accent-brand-green h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
-            />
-          </div>
+          )}
 
-          {/* Carbs slider */}
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs font-semibold">
-              <span className="text-slate-500">Carbohydrates (g)</span>
-              <span className="font-outfit font-bold text-brand-sky">{carbs}g</span>
+          {/* 3. Ingredients Section */}
+          <div className="space-y-3">
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Recognized Ingredients</span>
+            
+            {/* Ingredients Tags Wrapper */}
+            <div className="flex flex-wrap gap-2">
+              {ingredients.map((ing, i) => (
+                <div 
+                  key={i} 
+                  className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold px-3 py-1.5 rounded-xl flex items-center gap-1 border border-slate-100/10"
+                >
+                  <span>{ing}</span>
+                  {isEditing && (
+                    <button 
+                      type="button" 
+                      onClick={() => removeIngredient(i)}
+                      className="text-slate-450 hover:text-slate-800 dark:hover:text-white shrink-0"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
-            <input 
-              type="range" 
-              min="0" 
-              max="150" 
-              value={carbs}
-              onChange={(e) => setCarbs(Number(e.target.value))}
-              className="w-full accent-brand-sky h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
-            />
+
+            {/* Inline Add Ingredient Form */}
+            {isEditing && (
+              <form onSubmit={addIngredient} className="flex gap-2 mt-2">
+                <input 
+                  type="text" 
+                  value={newIngredient}
+                  onChange={(e) => setNewIngredient(e.target.value)}
+                  placeholder="Add missing ingredient..." 
+                  className="flex-1 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-850 focus:border-brand-green dark:focus:border-brand-green rounded-xl px-3.5 py-2 text-xs outline-none transition-all placeholder:text-slate-400"
+                />
+                <button 
+                  type="submit" 
+                  className="bg-brand-green hover:bg-emerald-600 text-white p-2 rounded-xl active:scale-95 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </form>
+            )}
           </div>
 
-          {/* Fat slider */}
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs font-semibold">
-              <span className="text-slate-500">Fat (g)</span>
-              <span className="font-outfit font-bold text-brand-coral">{fat}g</span>
-            </div>
-            <input 
-              type="range" 
-              min="0" 
-              max="60" 
-              value={fat}
-              onChange={(e) => setFat(Number(e.target.value))}
-              className="w-full accent-brand-coral h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer"
-            />
-          </div>
-
-          {/* Action trigger */}
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-2">
+          {/* Action Log Trigger Button */}
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
             <button 
-              onClick={() => {
-                setCalories(420);
-                setProtein(28);
-                setCarbs(12);
-                setFat(18);
-                setIsSaved(false);
-              }}
-              className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 p-3 rounded-xl transition-all"
+              onClick={handleConfirmLog}
+              disabled={isLogged}
+              className="w-full bg-[#0F172A] hover:bg-[#1E293B] dark:bg-white dark:hover:bg-slate-100 dark:text-[#020617] text-white font-semibold text-sm py-4 px-4 rounded-xl shadow-glow active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
-              <RefreshCw className="w-4 h-4 text-slate-500" />
-            </button>
-            <button 
-              onClick={() => setIsSaved(true)}
-              className="flex-1 bg-brand-green hover:bg-emerald-600 active:scale-[0.98] text-white font-semibold text-xs py-3.5 px-4 rounded-xl shadow-glow transition-all flex items-center justify-center gap-2"
-            >
-              {isSaved ? (
-                <>
-                  <Check className="w-4 h-4" /> Logged Successfully!
-                </>
-              ) : (
-                <>
-                  <Check className="w-4 h-4" /> Confirm & Log Meal
-                </>
-              )}
+              <Check className="w-4 h-4" /> Log Meal to Diary
             </button>
           </div>
+
         </div>
 
       </div>
