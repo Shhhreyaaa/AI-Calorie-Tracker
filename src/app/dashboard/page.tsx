@@ -14,83 +14,13 @@ import {
   TrendingUp,
   AlertCircle
 } from "lucide-react";
-
-// Custom SVG Ring Component for Macros
-interface MacroRingProps {
-  percentage: number;
-  label: string;
-  amount: string;
-  target: string;
-  colorClass: string;
-  glowClass: string;
-  strokeColor: string;
-}
-
-function MacroRing({ 
-  percentage, 
-  label, 
-  amount, 
-  target, 
-  colorClass, 
-  glowClass,
-  strokeColor 
-}: MacroRingProps) {
-  const radius = 32;
-  const strokeWidth = 6;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (Math.min(percentage, 100) / 100) * circumference;
-
-  return (
-    <div className="bg-slate-50/50 dark:bg-slate-850/40 border border-slate-100/60 dark:border-slate-800/40 rounded-2xl p-4 flex flex-col items-center text-center shadow-sm">
-      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-2">{label}</span>
-      
-      {/* SVG Circular Progress Ring */}
-      <div className="relative w-20 h-20 flex items-center justify-center">
-        <svg className="w-full h-full transform -rotate-90">
-          {/* Background circle */}
-          <circle
-            cx="40"
-            cy="40"
-            r={radius}
-            stroke="rgba(148, 163, 184, 0.1)"
-            strokeWidth={strokeWidth}
-            fill="transparent"
-          />
-          {/* Progress circle */}
-          <circle
-            cx="40"
-            cy="40"
-            r={radius}
-            stroke={strokeColor}
-            strokeWidth={strokeWidth}
-            fill="transparent"
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            strokeLinecap="round"
-            className="transition-all duration-500 ease-out"
-          />
-        </svg>
-        
-        {/* Inside Text */}
-        <div className="absolute flex flex-col items-center">
-          <span className="font-outfit text-xs font-bold text-slate-800 dark:text-slate-200">
-            {Math.round(percentage)}%
-          </span>
-        </div>
-      </div>
-
-      <div className="mt-3">
-        <div className="font-outfit text-sm font-bold text-slate-805 dark:text-slate-205">{amount}</div>
-        <div className="text-[9px] text-slate-400 font-semibold uppercase mt-0.5">Target {target}</div>
-      </div>
-    </div>
-  );
-}
+import MacroRing from "@/components/dashboard/MacroRing";
 
 export default function Dashboard() {
   const [streak, setStreak] = useState(5);
   const [calories, setCalories] = useState(1320);
   const [showToast, setShowToast] = useState(false);
+
 
   useEffect(() => {
     if (showToast) {
@@ -226,31 +156,25 @@ export default function Dashboard() {
         <h3 className="font-outfit text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Macronutrient Rings</h3>
         <div className="grid grid-cols-3 gap-3">
           <MacroRing 
-            percentage={(protein/targetProtein)*100}
+            value={protein}
+            target={targetProtein}
             label="Protein"
-            amount={`${protein}g`}
-            target={`${targetProtein}g`}
-            colorClass="text-brand-green"
-            glowClass="shadow-glow"
             strokeColor="#10B981"
+            glowColor="rgba(16, 185, 129, 0.2)"
           />
           <MacroRing 
-            percentage={(carbs/targetCarbs)*100}
+            value={carbs}
+            target={targetCarbs}
             label="Carbs"
-            amount={`${carbs}g`}
-            target={`${targetCarbs}g`}
-            colorClass="text-brand-sky"
-            glowClass=""
             strokeColor="#0EA5E9"
+            glowColor="rgba(14, 165, 233, 0.2)"
           />
           <MacroRing 
-            percentage={(fat/targetFat)*100}
+            value={fat}
+            target={targetFat}
             label="Fat"
-            amount={`${fat}g`}
-            target={`${targetFat}g`}
-            colorClass="text-brand-coral"
-            glowClass=""
             strokeColor="#F43F5E"
+            glowColor="rgba(244, 63, 94, 0.2)"
           />
         </div>
       </div>
