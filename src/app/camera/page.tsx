@@ -127,13 +127,53 @@ export default function CameraPage() {
     }
   };
 
-  // Simulate Gemini Vision AI analysis trigger
-  const handleAnalyze = () => {
+  // Helper to convert Data URL (base64) to a File object
+  const dataURLtoFile = (dataurl: string, filename: string): File => {
+    const arr = dataurl.split(",");
+    const mime = arr[0].match(/:(.*?);/)?.[1] || "image/png";
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, { type: mime });
+  };
+
+  // Connects uploader directly to Gemini Vision API route
+  const handleAnalyze = async () => {
+    if (!imagePreview) return;
     setIsLoading(true);
-    setTimeout(() => {
+    try {
+      // 1. Prepare image file
+      const file = dataURLtoFile(imagePreview, "meal_image.png");
+      const formData = new FormData();
+      formData.append("file", file);
+
+      // 2. Fetch analyze API route
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        // 3. Save result and image to sessionStorage
+        sessionStorage.setItem("latest_analysis", JSON.stringify(result.data));
+        sessionStorage.setItem("latest_image", imagePreview);
+        
+        // 4. Redirect to Report page
+        router.push("/analysis");
+      } else {
+        alert(result.error || "Gemini AI was unable to recognize food in this image. Please try again with a clearer photo.");
+      }
+    } catch (err) {
+      console.error("Analysis request failed:", err);
+      alert("Failed to connect to the Gemini AI analysis service. Please try again.");
+    } finally {
       setIsLoading(false);
-      router.push("/analysis");
-    }, 2500);
+    }
   };
 
   return (

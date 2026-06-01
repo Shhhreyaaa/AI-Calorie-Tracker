@@ -268,8 +268,14 @@ export default function DiaryPage() {
 
               {/* Render items or empty banner */}
               {catMeals.length === 0 ? (
-                <div className="bg-white/40 dark:bg-slate-900/40 border border-slate-100/50 dark:border-slate-800/40 border-dashed rounded-2xl py-5 text-center text-xs text-slate-400">
-                  No {cat.name.toLowerCase()} entries logged.
+                <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm border border-slate-100/70 dark:border-slate-800/80 rounded-[24px] p-5 text-center shadow-premium flex flex-col items-center justify-center space-y-2 group transition-all hover:scale-[0.99] duration-300">
+                  <div className={`p-2.5 rounded-2xl ${cat.color} flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform`}>
+                    <CatIcon className="w-5 h-5 stroke-[2.2px]" />
+                  </div>
+                  <div>
+                    <h4 className="font-outfit text-xs font-bold text-slate-700 dark:text-slate-350">No {cat.name} logged</h4>
+                    <p className="text-[10px] text-slate-400 mt-0.5 max-w-[200px] mx-auto">Use the AI Scanner to capture photos or log a quick snack.</p>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">

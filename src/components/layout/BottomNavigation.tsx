@@ -25,7 +25,7 @@ export default function BottomNavigation() {
   const navItems = [
     { name: "Home", path: "/dashboard", icon: Home },
     { name: "Scan", path: "/camera", icon: Camera },
-    { name: "AI", path: "/analysis", icon: Sparkles },
+    { name: "Coach", path: "/coach", icon: Sparkles },
     { name: "Diary", path: "/diary", icon: BookOpen },
     { name: "Stats", path: "/analytics", icon: BarChart2 },
     { name: "Streaks", path: "/streaks", icon: Flame },

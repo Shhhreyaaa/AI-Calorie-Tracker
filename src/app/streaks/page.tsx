@@ -84,11 +84,15 @@ export default function StreaksPage() {
       </div>
 
       {/* Main Flame Core Card */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[32px] p-6 shadow-premium dark:shadow-premium-dark flex flex-col items-center justify-center text-center">
-        <div className="bg-brand-coral/10 p-5 rounded-[24px] mb-4 hover:scale-105 transition-transform duration-300">
-          <Flame className="w-16 h-16 text-brand-coral fill-brand-coral animate-pulse" />
+      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[32px] p-8 shadow-premium dark:shadow-premium-dark flex flex-col items-center justify-center text-center">
+        <div className="relative mb-6">
+          {/* Layered glowing background behind flame */}
+          <div className="absolute inset-0 bg-brand-coral/25 rounded-full blur-2xl scale-150 animate-pulse" />
+          <div className="relative bg-brand-coral/10 p-6 rounded-[28px] border border-brand-coral/10 flex items-center justify-center transition-transform duration-300 hover:scale-105">
+            <Flame className="w-16 h-16 text-brand-coral fill-brand-coral animate-bounce" style={{ animationDuration: '3.5s' }} />
+          </div>
         </div>
-        <h3 className="font-outfit text-4xl font-extrabold tracking-tight text-brand-coral">
+        <h3 className="font-outfit text-4xl font-black tracking-tight text-brand-coral">
           {streakDays} Days
         </h3>
         <p className="text-xs text-slate-405 mt-1 max-w-[200px]">

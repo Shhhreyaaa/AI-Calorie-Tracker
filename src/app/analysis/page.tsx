@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { 
@@ -13,9 +13,11 @@ import {
   Plus,
   Sliders,
   CheckCircle,
-  Percent
+  Percent,
+  Loader2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { saveMealLog } from "@/app/meals/actions";
 
 export default function AnalysisPage() {
   const router = useRouter();
@@ -26,7 +28,7 @@ export default function AnalysisPage() {
   const [protein, setProtein] = useState(28);
   const [carbs, setCarbs] = useState(12);
   const [fat, setFat] = useState(18);
-  const [confidence] = useState(0.94); // 94% confidence
+  const [confidence, setConfidence] = useState(0.94);
   const [ingredients, setIngredients] = useState([
     "Fresh Smoked Salmon",
     "Ripe Avocado Chunks",
@@ -34,10 +36,51 @@ export default function AnalysisPage() {
     "Extra Virgin Olive Oil",
     "Toasted Sesame Seeds"
   ]);
+  const [imageSrc, setImageSrc] = useState("/images/salmon_salad.png");
+  const [mealType, setMealType] = useState<"Breakfast" | "Lunch" | "Dinner" | "Snack">("Lunch");
 
   const [newIngredient, setNewIngredient] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [isLogged, setIsLogged] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Load latest Gemini analysis from sessionStorage if available
+  useEffect(() => {
+    try {
+      const storedAnalysis = sessionStorage.getItem("latest_analysis");
+      const storedImage = sessionStorage.getItem("latest_image");
+
+      if (storedAnalysis) {
+        const parsed = JSON.parse(storedAnalysis);
+        setMealName(parsed.meal_name || "Unknown Meal");
+        setCalories(parsed.calories || 0);
+        setProtein(parsed.protein || 0);
+        setCarbs(parsed.carbs || 0);
+        setFat(parsed.fat || 0);
+        setConfidence(parsed.confidence ?? 0.9);
+        setIngredients(parsed.ingredients || []);
+      }
+
+      if (storedImage) {
+        setImageSrc(storedImage);
+      }
+
+      // Automatically guess meal type by hour
+      const hour = new Date().getHours();
+      if (hour >= 5 && hour < 11) {
+        setMealType("Breakfast");
+      } else if (hour >= 11 && hour < 16) {
+        setMealType("Lunch");
+      } else if (hour >= 16 && hour < 22) {
+        setMealType("Dinner");
+      } else {
+        setMealType("Snack");
+      }
+
+    } catch (err) {
+      console.error("Error loading analysis session data:", err);
+    }
+  }, []);
 
   // Remove an ingredient tag
   const removeIngredient = (index: number) => {
@@ -53,11 +96,31 @@ export default function AnalysisPage() {
     }
   };
 
-  const handleConfirmLog = () => {
-    setIsLogged(true);
-    setTimeout(() => {
-      router.push("/dashboard");
-    }, 1800);
+  const handleConfirmLog = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      // Execute database insert
+      await saveMealLog({
+        food_name: mealName,
+        calories: calories,
+        protein: protein,
+        carbs: carbs,
+        fat: fat,
+        meal_type: mealType,
+        image_url: imageSrc.startsWith("data:") ? undefined : imageSrc
+      });
+      
+      setIsLogged(true);
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 1500);
+    } catch (err: any) {
+      console.error("Failed to save meal log:", err);
+      alert(err.message || "Unable to save meal log. Please verify your connection.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -76,7 +139,7 @@ export default function AnalysisPage() {
         <div className="flex items-center gap-3">
           <Link 
             href="/camera" 
-            className="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-slate-205 transition-colors"
+            className="bg-slate-100 dark:bg-slate-800 p-2 rounded-xl text-slate-550 hover:text-slate-800 dark:hover:text-slate-205 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
@@ -92,7 +155,7 @@ export default function AnalysisPage() {
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
             isEditing 
               ? "bg-brand-green/10 text-brand-green border-brand-green/20" 
-              : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-350 border-slate-100 dark:border-slate-800/80 hover:bg-slate-50"
+              : "bg-white dark:bg-slate-900 text-slate-650 dark:text-slate-350 border-slate-100 dark:border-slate-800/80 hover:bg-slate-50"
           }`}
         >
           <Sliders className="w-3.5 h-3.5" />
@@ -101,16 +164,14 @@ export default function AnalysisPage() {
       </div>
 
       {/* Main Container */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[32px] overflow-hidden shadow-premium dark:shadow-premium-dark space-y-6 pb-6">
+      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[32px] overflow-hidden shadow-premium dark:shadow-premium-dark space-y-6 pb-6 animate-fade-in">
         
         {/* 1. Meal Image Header Banner */}
-        <div className="relative h-56 w-full">
-          <Image 
-            src="/images/salmon_salad.png" 
+        <div className="relative h-56 w-full bg-slate-50 dark:bg-slate-950">
+          <img 
+            src={imageSrc} 
             alt="Recognized Meal" 
-            fill 
-            className="object-cover"
-            priority
+            className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
           
@@ -212,7 +273,7 @@ export default function AnalysisPage() {
                   <span className="bg-brand-green/10 text-brand-green text-[10px] font-bold px-2 py-0.5 rounded-lg block">
                     Deficit Safe
                   </span>
-                  <span className="text-[9px] text-slate-400 font-semibold block mt-1">21% of daily budget</span>
+                  <span className="text-[9px] text-slate-400 font-semibold block mt-1">AI Verified Estimate</span>
                 </div>
               </div>
 
@@ -221,25 +282,25 @@ export default function AnalysisPage() {
                 {/* Protein */}
                 <div className="bg-slate-50/50 dark:bg-slate-850/40 border border-slate-100/60 dark:border-slate-800/40 rounded-2xl p-3 flex flex-col items-center">
                   <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Protein</span>
-                  <span className="font-outfit text-base font-bold mt-1 text-slate-800 dark:text-slate-205">{protein}g</span>
+                  <span className="font-outfit text-base font-bold mt-1 text-slate-805 dark:text-slate-205">{protein}g</span>
                   <div className="w-10 bg-slate-100 dark:bg-slate-800 h-1 rounded-full overflow-hidden mt-2">
-                    <div className="bg-brand-green h-full rounded-full" style={{ width: `${(protein/150)*100}%` }} />
+                    <div className="bg-brand-green h-full rounded-full" style={{ width: `${Math.min((protein/150)*100, 100)}%` }} />
                   </div>
                 </div>
                 {/* Carbs */}
                 <div className="bg-slate-50/50 dark:bg-slate-850/40 border border-slate-100/60 dark:border-slate-800/40 rounded-2xl p-3 flex flex-col items-center">
                   <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Carbs</span>
-                  <span className="font-outfit text-base font-bold mt-1 text-slate-800 dark:text-slate-205">{carbs}g</span>
+                  <span className="font-outfit text-base font-bold mt-1 text-slate-805 dark:text-slate-205">{carbs}g</span>
                   <div className="w-10 bg-slate-100 dark:bg-slate-800 h-1 rounded-full overflow-hidden mt-2">
-                    <div className="bg-brand-sky h-full rounded-full" style={{ width: `${(carbs/200)*100}%` }} />
+                    <div className="bg-brand-sky h-full rounded-full" style={{ width: `${Math.min((carbs/200)*105, 100)}%` }} />
                   </div>
                 </div>
                 {/* Fat */}
                 <div className="bg-slate-50/50 dark:bg-slate-850/40 border border-slate-100/60 dark:border-slate-800/40 rounded-2xl p-3 flex flex-col items-center">
                   <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Fat</span>
-                  <span className="font-outfit text-base font-bold mt-1 text-slate-800 dark:text-slate-205">{fat}g</span>
+                  <span className="font-outfit text-base font-bold mt-1 text-slate-805 dark:text-slate-205">{fat}g</span>
                   <div className="w-10 bg-slate-100 dark:bg-slate-800 h-1 rounded-full overflow-hidden mt-2">
-                    <div className="bg-brand-coral h-full rounded-full" style={{ width: `${(fat/65)*100}%` }} />
+                    <div className="bg-brand-coral h-full rounded-full" style={{ width: `${Math.min((fat/65)*100, 100)}%` }} />
                   </div>
                 </div>
               </div>
@@ -247,8 +308,29 @@ export default function AnalysisPage() {
             </div>
           )}
 
+          {/* 2. Meal Type Category Selector */}
+          <div className="space-y-2 pt-2 border-t border-slate-100/60 dark:border-slate-800/40">
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Meal Category</span>
+            <div className="grid grid-cols-4 gap-2">
+              {(["Breakfast", "Lunch", "Dinner", "Snack"] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setMealType(type)}
+                  className={`py-2 px-1 rounded-xl text-xs font-semibold text-center border transition-all ${
+                    mealType === type
+                      ? "bg-brand-green border-brand-green text-white shadow-glow"
+                      : "bg-slate-50 dark:bg-slate-850 border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-350 hover:bg-slate-100"
+                  }`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* 3. Ingredients Section */}
-          <div className="space-y-3">
+          <div className="space-y-3 pt-2 border-t border-slate-100/60 dark:border-slate-800/40">
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Recognized Ingredients</span>
             
             {/* Ingredients Tags Wrapper */}
@@ -263,7 +345,7 @@ export default function AnalysisPage() {
                     <button 
                       type="button" 
                       onClick={() => removeIngredient(i)}
-                      className="text-slate-450 hover:text-slate-800 dark:hover:text-white shrink-0"
+                      className="text-slate-450 hover:text-slate-850 dark:hover:text-white shrink-0"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -296,10 +378,18 @@ export default function AnalysisPage() {
           <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
             <button 
               onClick={handleConfirmLog}
-              disabled={isLogged}
-              className="w-full bg-[#0F172A] hover:bg-[#1E293B] dark:bg-white dark:hover:bg-slate-100 dark:text-[#020617] text-white font-semibold text-sm py-4 px-4 rounded-xl shadow-glow active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+              disabled={isLogged || saving}
+              className="w-full bg-[#0F172A] hover:bg-[#1E293B] dark:bg-white dark:hover:bg-slate-100 dark:text-[#020617] text-white font-semibold text-sm py-4 px-4 rounded-xl shadow-glow active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:bg-slate-300 dark:disabled:bg-slate-850 disabled:text-slate-450"
             >
-              <Check className="w-4 h-4" /> Log Meal to Diary
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Logging Meal...
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" /> Log Meal to Diary
+                </>
+              )}
             </button>
           </div>
 

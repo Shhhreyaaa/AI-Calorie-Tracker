@@ -197,7 +197,7 @@ export default function Dashboard() {
           {/* Linear progress bar */}
           <div className="w-full bg-slate-100 dark:bg-slate-850 h-2 rounded-full overflow-hidden">
             <div 
-              className="bg-brand-green h-full rounded-full transition-all duration-500" 
+              className="bg-gradient-to-r from-emerald-450 to-brand-green h-full rounded-full transition-all duration-500 shadow-[0_0_10px_rgba(16,185,129,0.35)]" 
               style={{ width: `${caloriePercentage}%` }}
             />
           </div>
