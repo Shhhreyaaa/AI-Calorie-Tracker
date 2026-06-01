@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Settings, Shield, Sliders, ToggleLeft, Key, Check } from "lucide-react";
+import { logout } from "../auth/actions";
 
 export default function SettingsPage() {
   const [calories, setCalories] = useState(2000);
@@ -119,6 +120,22 @@ export default function SettingsPage() {
             <span className="text-slate-400 font-semibold">Enabled</span>
           </div>
         </div>
+      </div>
+
+      {/* Logout Card */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[32px] p-5 shadow-premium dark:shadow-premium-dark flex items-center justify-between">
+        <div>
+          <h4 className="font-outfit text-sm font-bold text-slate-805 dark:text-slate-200">Account Session</h4>
+          <p className="text-xs text-slate-405 mt-0.5">Securely sign out of your profile</p>
+        </div>
+        <form action={logout}>
+          <button 
+            type="submit"
+            className="bg-brand-coral hover:bg-rose-600 text-white font-semibold text-xs py-2 px-4 rounded-xl active:scale-95 transition-all"
+          >
+            Log Out
+          </button>
+        </form>
       </div>
 
     </div>

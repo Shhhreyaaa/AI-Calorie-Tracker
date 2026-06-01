@@ -16,6 +16,12 @@ import {
 export default function BottomNavigation() {
   const pathname = usePathname();
 
+  // Hide navigation on auth pages
+  const hideNavRoutes = ["/login", "/signup"];
+  if (hideNavRoutes.includes(pathname)) {
+    return null;
+  }
+
   const navItems = [
     { name: "Home", path: "/dashboard", icon: Home },
     { name: "Scan", path: "/camera", icon: Camera },
