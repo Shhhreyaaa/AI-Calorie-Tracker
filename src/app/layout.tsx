@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Outfit, Inter } from "next/font/google";
 import "./globals.css";
+import BottomNavigation from "@/components/layout/BottomNavigation";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -27,10 +28,14 @@ export default function RootLayout({
       lang="en"
       className={`${outfit.variable} ${inter.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-[#F8FAFC] dark:bg-[#020617] text-[#0F172A] dark:text-[#F8FAFC] font-sans">
-        {children}
+      <body className="min-h-full flex flex-col bg-[#F8FAFC] dark:bg-[#020617] text-[#0F172A] dark:text-[#F8FAFC] font-sans pb-24">
+        <main className="flex-1 w-full max-w-md mx-auto px-4 py-6">
+          {children}
+        </main>
+        <BottomNavigation />
       </body>
     </html>
   );
 }
+
 
