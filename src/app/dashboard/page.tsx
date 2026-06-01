@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import MacroRing from "@/components/dashboard/MacroRing";
 import { createClient } from "@/lib/supabase/client";
-import { saveMealLog } from "@/app/meals/actions";
+import { saveMealLog, getAndUpdateActiveStreak } from "@/app/meals/actions";
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -59,13 +59,8 @@ export default function Dashboard() {
         });
       }
 
-      // 2. Fetch streaks data
-      const { data: streakData } = await supabase
-        .from("streaks")
-        .select("*")
-        .eq("id", user.id)
-        .single();
-      
+      // 2. Fetch streaks data dynamically (checks for missed days)
+      const streakData = await getAndUpdateActiveStreak();
       if (streakData) {
         setStreak(streakData.current_streak);
       }

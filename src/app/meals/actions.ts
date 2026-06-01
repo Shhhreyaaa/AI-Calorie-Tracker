@@ -13,7 +13,7 @@ export interface MealData {
   fat: number;
 }
 
-// 1. Save a new meal log
+// 1. Save a new meal log and increment streak
 export async function saveMealLog(meal: MealData) {
   const supabase = await createClient();
 
@@ -103,7 +103,7 @@ export async function deleteMealLog(mealId: string) {
     .from("meals")
     .delete()
     .eq("id", mealId)
-    .eq("user_id", user.id); // Guard to ensure user deletes their own row
+    .eq("user_id", user.id);
 
   if (error) {
     console.error("Database delete error:", error);
@@ -152,4 +152,55 @@ export async function updateMealLog(mealId: string, updated: Partial<MealData>) 
   revalidatePath("/streaks");
 
   return { success: true, data };
+}
+
+// 4. Fetch and update active streaks dynamically (checks if a day was missed)
+export async function getAndUpdateActiveStreak() {
+  const supabase = await createClient();
+
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  if (userError || !user) {
+    throw new Error("Unauthorized. Please log in.");
+  }
+
+  const { data: streakData, error } = await supabase
+    .from("streaks")
+    .select("*")
+    .eq("id", user.id)
+    .single();
+
+  if (error || !streakData) {
+    return { current_streak: 0, longest_streak: 0, last_logged_date: null };
+  }
+
+  const todayStr = new Date().toISOString().split("T")[0];
+  const lastLogged = streakData.last_logged_date;
+
+  if (lastLogged) {
+    const today = new Date(todayStr);
+    const lastLoggedDate = new Date(lastLogged);
+    
+    // Calculate difference in milliseconds and convert to days
+    const diffTime = today.getTime() - lastLoggedDate.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 65 * 24)); // check if older than 24 hours
+
+    if (diffDays > 1) {
+      // User missed a day! Reset active streak to 0 in database
+      const { data: updatedData } = await supabase
+        .from("streaks")
+        .update({
+          current_streak: 0,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", user.id)
+        .select()
+        .single();
+        
+      if (updatedData) {
+        return updatedData;
+      }
+    }
+  }
+
+  return streakData;
 }
