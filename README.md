@@ -112,6 +112,19 @@
 
 ### Streak System
 <img width="100%" src="screenshots/streaks.png" />
+### Coach
+<img width="100%" src="screenshots/coach.png" />
+
+### Diary
+
+<img width="100%" src="screenshots/diary.png" />
+
+### Settings
+
+<img width="100%" src="screenshots/settings.png" />
+
+
+
 
 ---
 
