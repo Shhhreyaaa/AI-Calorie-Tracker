@@ -82,8 +82,17 @@ CREATE POLICY "Users can view their own streaks."
   ON public.streaks FOR SELECT 
   USING (auth.uid() = id);
 
+CREATE POLICY "Users can insert their own streaks." 
+  ON public.streaks FOR INSERT 
+  WITH CHECK (auth.uid() = id);
+
 CREATE POLICY "Users can update their own streaks." 
   ON public.streaks FOR UPDATE 
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Users can delete their own streaks." 
+  ON public.streaks FOR DELETE 
   USING (auth.uid() = id);
 
 -- D. Meals Table Policies
@@ -133,3 +142,108 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ==========================================
+-- 5. Retroactive backfill for existing auth users
+-- ==========================================
+INSERT INTO public.users (id, email, display_name)
+SELECT id, email, COALESCE(raw_user_meta_data->>'display_name', raw_user_meta_data->>'full_name', 'User')
+FROM auth.users
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.goals (id, calories, protein, carbs, fat)
+SELECT id, 2000, 150, 200, 65
+FROM auth.users
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.streaks (id, current_streak, longest_streak)
+SELECT id, 0, 0
+FROM auth.users
+ON CONFLICT (id) DO NOTHING;
+
+-- ==========================================
+-- 6. Coach Messages Conversation Memory (Upgrade)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS public.coach_messages (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  message TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE public.coach_messages ENABLE ROW LEVEL SECURITY;
+
+-- Security Policies
+CREATE POLICY "Users can view their own coach messages."
+  ON public.coach_messages FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own coach messages."
+  ON public.coach_messages FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete their own coach messages."
+  ON public.coach_messages FOR DELETE
+  USING (auth.uid() = user_id);
+
+-- Performance Index
+CREATE INDEX IF NOT EXISTS idx_coach_messages_user_created ON public.coach_messages(user_id, created_at ASC);
+
+-- ==========================================
+-- 7. Image Analysis Cache & Logs
+-- ==========================================
+
+-- A. Image Analysis Cache
+CREATE TABLE IF NOT EXISTS public.image_analysis_cache (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  image_hash TEXT UNIQUE NOT NULL,
+  meal_name TEXT NOT NULL,
+  calories INTEGER NOT NULL,
+  protein INTEGER NOT NULL,
+  carbs INTEGER NOT NULL,
+  fat INTEGER NOT NULL,
+  confidence NUMERIC,
+  ingredients JSONB,
+  health_score INTEGER,
+  good_for TEXT,
+  suggestions JSONB,
+  created_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+
+ALTER TABLE public.image_analysis_cache ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can insert analysis cache"
+  ON public.image_analysis_cache FOR INSERT
+  WITH CHECK (auth.role() = 'authenticated');
+
+CREATE POLICY "Users can read analysis cache"
+  ON public.image_analysis_cache FOR SELECT
+  USING (auth.role() = 'authenticated');
+
+-- B. Gemini API Logs
+CREATE TABLE IF NOT EXISTS public.gemini_api_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  image_hash TEXT,
+  model_used TEXT,
+  status TEXT NOT NULL,
+  error_message TEXT,
+  created_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+
+ALTER TABLE public.gemini_api_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can insert api logs"
+  ON public.gemini_api_logs FOR INSERT
+  WITH CHECK (auth.role() = 'authenticated');
+
+CREATE POLICY "Users can read their own api logs"
+  ON public.gemini_api_logs FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE INDEX IF NOT EXISTS idx_image_analysis_cache_hash ON public.image_analysis_cache(image_hash);
+CREATE INDEX IF NOT EXISTS idx_gemini_api_logs_status ON public.gemini_api_logs(status);
+CREATE INDEX IF NOT EXISTS idx_gemini_api_logs_user ON public.gemini_api_logs(user_id);
+

@@ -24,6 +24,7 @@ export default function DiaryPage() {
   const [meals, setMeals] = useState<any[]>([]);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingMeal, setEditingMeal] = useState<any | null>(null);
+  const [formattedDate, setFormattedDate] = useState("");
 
   // Editing form states
   const [editName, setEditName] = useState("");
@@ -61,6 +62,11 @@ export default function DiaryPage() {
 
   useEffect(() => {
     fetchMeals();
+    setFormattedDate(new Date().toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric"
+    }));
   }, []);
 
   const handleDelete = async (id: string) => {
@@ -122,31 +128,53 @@ export default function DiaryPage() {
 
   if (loading && meals.length === 0) {
     return (
-      <div className="min-h-[70vh] flex flex-col items-center justify-center gap-2">
-        <Loader2 className="w-8 h-8 text-brand-green animate-spin" />
-        <span className="text-xs text-slate-400 font-semibold">Loading diary timeline...</span>
+      <div className="space-y-6 pb-20 animate-pulse">
+        {/* Header Skeleton */}
+        <div className="flex justify-between items-center">
+          <div className="space-y-2">
+            <div className="h-3 w-16 bg-slate-800 rounded" />
+            <div className="h-6 w-36 bg-slate-800 rounded" />
+          </div>
+          <div className="h-8 w-24 bg-slate-800 rounded-xl" />
+        </div>
+
+        {/* Consumed Macros Header Skeleton */}
+        <div className="glass-panel rounded-[32px] p-5 h-24 bg-slate-900/20 border-white/5" />
+
+        {/* 4 categories skeletons */}
+        <div className="space-y-4">
+          {["Breakfast", "Lunch", "Dinner", "Snack"].map((cat) => (
+            <div key={cat} className="space-y-3">
+              <div className="h-4 w-28 bg-slate-800 rounded" />
+              <div className="glass-panel rounded-2xl p-4 h-20 bg-slate-900/10 border-white/5 flex items-center justify-between" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
 
   // Categories configurations
   const categories = [
-    { name: "Breakfast", icon: Coffee, color: "text-[#0EA5E9] bg-[#0EA5E9]/10" },
-    { name: "Lunch", icon: Sun, color: "text-[#10B981] bg-[#10B981]/10" },
-    { name: "Dinner", icon: Moon, color: "text-[#8B5CF6] bg-[#8B5CF6]/10" },
-    { name: "Snack", icon: Cookie, color: "text-[#F43F5E] bg-[#F43F5E]/10" },
+    { name: "Breakfast", icon: Coffee, color: "text-[#0EA5E9] bg-[#0EA5E9]/10 border border-[#0EA5E9]/20" },
+    { name: "Lunch", icon: Sun, color: "text-[#10B981] bg-[#10B981]/10 border border-[#10B981]/20" },
+    { name: "Dinner", icon: Moon, color: "text-[#8B5CF6] bg-[#8B5CF6]/10 border border-[#8B5CF6]/20" },
+    { name: "Snack", icon: Cookie, color: "text-[#F43F5E] bg-[#F43F5E]/10 border border-[#F43F5E]/20" },
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       
       {/* Edit Modal Overlay */}
       {isEditModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[32px] p-6 w-full max-w-sm shadow-2xl animate-fade-in space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="glass-panel border-white/10 rounded-[32px] p-6 w-full max-w-sm shadow-2xl animate-fade-in space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="font-outfit text-base font-bold">Edit Meal Entry</h3>
-              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-650">
+              <h3 className="font-outfit text-base font-bold text-white">Edit Meal Entry</h3>
+              <button 
+                onClick={() => setIsEditModalOpen(false)} 
+                className="text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -155,21 +183,25 @@ export default function DiaryPage() {
               <div className="space-y-1">
                 <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Food Title</label>
                 <input 
-                  type="text" required value={editName} onChange={(e) => setEditName(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 focus:border-brand-green rounded-xl px-3 py-2 text-xs outline-none"
+                  type="text" 
+                  required 
+                  value={editName} 
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full glass-input rounded-xl px-3 py-2 text-xs outline-none text-white focus:border-brand-green/30"
                 />
               </div>
 
               <div className="space-y-1">
                 <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Category</label>
                 <select 
-                  value={editType} onChange={(e: any) => setEditType(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 focus:border-brand-green rounded-xl px-3 py-2 text-xs outline-none"
+                  value={editType} 
+                  onChange={(e: any) => setEditType(e.target.value)}
+                  className="w-full glass-input rounded-xl px-3 py-2 text-xs outline-none text-white focus:border-brand-green/30 cursor-pointer"
                 >
-                  <option value="Breakfast">Breakfast</option>
-                  <option value="Lunch">Lunch</option>
-                  <option value="Dinner">Dinner</option>
-                  <option value="Snack">Snack</option>
+                  <option value="Breakfast" className="bg-slate-900 text-white">Breakfast</option>
+                  <option value="Lunch" className="bg-slate-900 text-white">Lunch</option>
+                  <option value="Dinner" className="bg-slate-900 text-white">Dinner</option>
+                  <option value="Snack" className="bg-slate-900 text-white">Snack</option>
                 </select>
               </div>
 
@@ -177,15 +209,21 @@ export default function DiaryPage() {
                 <div className="space-y-1">
                   <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Calories</label>
                   <input 
-                    type="number" required value={editCalories} onChange={(e) => setEditCalories(Number(e.target.value))}
-                    className="w-full bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs outline-none"
+                    type="number" 
+                    required 
+                    value={editCalories} 
+                    onChange={(e) => setEditCalories(Number(e.target.value))}
+                    className="w-full glass-input rounded-xl px-3 py-2 text-xs outline-none text-white focus:border-brand-green/30"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Protein (g)</label>
                   <input 
-                    type="number" required value={editProtein} onChange={(e) => setEditProtein(Number(e.target.value))}
-                    className="w-full bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs outline-none"
+                    type="number" 
+                    required 
+                    value={editProtein} 
+                    onChange={(e) => setEditProtein(Number(e.target.value))}
+                    className="w-full glass-input rounded-xl px-3 py-2 text-xs outline-none text-white focus:border-brand-green/30"
                   />
                 </div>
               </div>
@@ -194,22 +232,28 @@ export default function DiaryPage() {
                 <div className="space-y-1">
                   <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Carbs (g)</label>
                   <input 
-                    type="number" required value={editCarbs} onChange={(e) => setEditCarbs(Number(e.target.value))}
-                    className="w-full bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs outline-none"
+                    type="number" 
+                    required 
+                    value={editCarbs} 
+                    onChange={(e) => setEditCarbs(Number(e.target.value))}
+                    className="w-full glass-input rounded-xl px-3 py-2 text-xs outline-none text-white focus:border-brand-green/30"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Fat (g)</label>
                   <input 
-                    type="number" required value={editFat} onChange={(e) => setEditFat(Number(e.target.value))}
-                    className="w-full bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs outline-none"
+                    type="number" 
+                    required 
+                    value={editFat} 
+                    onChange={(e) => setEditFat(Number(e.target.value))}
+                    className="w-full glass-input rounded-xl px-3 py-2 text-xs outline-none text-white focus:border-brand-green/30"
                   />
                 </div>
               </div>
 
               <button 
                 type="submit"
-                className="w-full bg-brand-green hover:bg-emerald-600 text-white font-semibold text-xs py-3 px-4 rounded-xl shadow-glow transition-all"
+                className="w-full bg-brand-green hover:bg-emerald-600 text-white font-bold text-xs py-3 px-4 rounded-xl shadow-glow transition-all active:scale-[0.98] cursor-pointer"
               >
                 Save Changes
               </button>
@@ -222,31 +266,31 @@ export default function DiaryPage() {
       <div className="flex justify-between items-center">
         <div>
           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Food Diary</span>
-          <h2 className="font-outfit text-2xl font-bold tracking-tight">Timeline Logs</h2>
+          <h2 className="font-outfit text-2xl font-bold tracking-tight text-white">Timeline Logs</h2>
         </div>
-        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-500">
-          <Calendar className="w-3.5 h-3.5" />
-          <span>June 1, 2026</span>
+        <div className="flex items-center gap-1.5 bg-slate-900/60 border border-white/5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-300 shadow-sm">
+          <Calendar className="w-3.5 h-3.5 text-brand-green" />
+          <span>{formattedDate || "June 1, 2026"}</span>
         </div>
       </div>
 
       {/* Daily Nutrients Aggregation Card */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-5 shadow-premium dark:shadow-premium-dark grid grid-cols-4 gap-2 text-center">
+      <div className="glass-panel border-white/5 rounded-[32px] p-6 grid grid-cols-4 gap-4 text-center">
         <div className="flex flex-col items-center">
-          <span className="text-[9px] text-slate-405 font-bold uppercase tracking-wider">Calories</span>
-          <span className="font-outfit text-xs font-extrabold mt-1 text-slate-800 dark:text-slate-200">{totalCalories} kcal</span>
+          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Calories</span>
+          <span className="font-outfit text-xs font-extrabold mt-1.5 text-white">{totalCalories} kcal</span>
         </div>
         <div className="flex flex-col items-center">
-          <span className="text-[9px] text-slate-405 font-bold uppercase tracking-wider">Protein</span>
-          <span className="font-outfit text-xs font-extrabold mt-1 text-slate-800 dark:text-slate-200">{totalProtein}g</span>
+          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Protein</span>
+          <span className="font-outfit text-xs font-extrabold mt-1.5 text-white">{totalProtein}g</span>
         </div>
         <div className="flex flex-col items-center">
-          <span className="text-[9px] text-slate-405 font-bold uppercase tracking-wider">Carbs</span>
-          <span className="font-outfit text-xs font-extrabold mt-1 text-slate-800 dark:text-slate-200">{totalCarbs}g</span>
+          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Carbs</span>
+          <span className="font-outfit text-xs font-extrabold mt-1.5 text-white">{totalCarbs}g</span>
         </div>
         <div className="flex flex-col items-center">
-          <span className="text-[9px] text-slate-405 font-bold uppercase tracking-wider">Fat</span>
-          <span className="font-outfit text-xs font-extrabold mt-1 text-slate-800 dark:text-slate-200">{totalFat}g</span>
+          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Fat</span>
+          <span className="font-outfit text-xs font-extrabold mt-1.5 text-white">{totalFat}g</span>
         </div>
       </div>
 
@@ -259,22 +303,24 @@ export default function DiaryPage() {
           return (
             <div key={cat.name} className="space-y-3">
               <div className="flex items-center gap-2">
-                <span className={`p-2 rounded-xl flex items-center justify-center ${cat.color}`}>
+                <span className={`p-2 rounded-xl flex items-center justify-center border ${cat.color}`}>
                   <CatIcon className="w-4 h-4" />
                 </span>
-                <h3 className="font-outfit text-base font-bold">{cat.name}</h3>
+                <h3 className="font-outfit text-base font-bold text-white">{cat.name}</h3>
                 <span className="text-slate-400 text-xs font-semibold">({catMeals.length})</span>
               </div>
 
               {/* Render items or empty banner */}
               {catMeals.length === 0 ? (
-                <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm border border-slate-100/70 dark:border-slate-800/80 rounded-[24px] p-5 text-center shadow-premium flex flex-col items-center justify-center space-y-2 group transition-all hover:scale-[0.99] duration-300">
-                  <div className={`p-2.5 rounded-2xl ${cat.color} flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform`}>
+                <div className="glass-panel border-white/5 rounded-2xl p-5 text-center flex flex-col items-center justify-center space-y-2 group transition-all hover:scale-[0.99] duration-300">
+                  <div className={`p-2.5 rounded-2xl border ${cat.color} flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform`}>
                     <CatIcon className="w-5 h-5 stroke-[2.2px]" />
                   </div>
                   <div>
-                    <h4 className="font-outfit text-xs font-bold text-slate-700 dark:text-slate-350">No {cat.name} logged</h4>
-                    <p className="text-[10px] text-slate-400 mt-0.5 max-w-[200px] mx-auto">Use the AI Scanner to capture photos or log a quick snack.</p>
+                    <h4 className="font-outfit text-xs font-bold text-slate-200">No {cat.name} logged</h4>
+                    <p className="text-[10px] text-slate-400 mt-1 max-w-[200px] mx-auto leading-relaxed">
+                      Use the AI Scanner to capture photos or log a quick meal.
+                    </p>
                   </div>
                 </div>
               ) : (
@@ -282,23 +328,24 @@ export default function DiaryPage() {
                   {catMeals.map((meal) => (
                     <div 
                       key={meal.id}
-                      className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-3xl p-3.5 shadow-premium dark:shadow-premium-dark flex items-center justify-between gap-3 group hover:translate-y-[-1px] transition-all"
+                      className="glass-panel glass-panel-hover border-white/5 rounded-2xl p-3.5 flex items-center justify-between gap-3 group"
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         {/* Food Thumb */}
-                        <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-slate-100 dark:border-slate-800 bg-slate-50">
+                        <div className="relative w-12 h-12 rounded-xl overflow-hidden shrink-0 border border-white/10 bg-slate-900/40">
                           <Image 
                             src={meal.image_url || "/images/avocado_toast.png"} 
                             alt={meal.food_name} 
                             fill 
-                            className="object-cover"
+                            sizes="(max-width: 768px) 48px, 48px"
+                            className="object-cover group-hover:scale-105 transition-transform duration-300"
                           />
                         </div>
                         <div className="min-w-0">
-                          <h4 className="font-outfit text-xs font-bold truncate text-slate-800 dark:text-slate-200">
+                          <h4 className="font-outfit text-xs font-bold truncate text-white">
                             {meal.food_name}
                           </h4>
-                          <div className="flex items-center gap-1.5 mt-1 text-[9px] text-slate-405 font-bold uppercase tracking-wider">
+                          <div className="flex items-center gap-1.5 mt-1 text-[9px] text-slate-400 font-bold uppercase tracking-wider">
                             <span className="text-brand-green">{meal.calories} kcal</span>
                             <span>•</span>
                             <span className="text-slate-400 flex items-center gap-1">
@@ -310,19 +357,19 @@ export default function DiaryPage() {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <div className="text-right text-[10px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                        <div className="text-right text-[10px] font-bold text-slate-400 whitespace-nowrap">
                           {meal.protein}g P | {meal.carbs}g C | {meal.fat}g F
                         </div>
                         <div className="flex gap-1 shrink-0">
                           <button 
                             onClick={() => openEditModal(meal)}
-                            className="text-slate-350 hover:text-brand-green p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            className="text-slate-400 hover:text-brand-green p-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button 
                             onClick={() => handleDelete(meal.id)}
-                            className="text-slate-350 hover:text-brand-coral p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            className="text-slate-400 hover:text-brand-coral p-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

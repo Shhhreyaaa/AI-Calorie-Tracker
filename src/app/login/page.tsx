@@ -1,14 +1,51 @@
 "use client";
 
-import React, { Suspense } from "react";
+import React, { Suspense, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Sparkles, Key, Mail, AlertCircle, ArrowRight } from "lucide-react";
-import { login } from "../auth/actions";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Sparkles, Key, Mail, AlertCircle, ArrowRight, Loader2 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 function LoginForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
+  const urlError = searchParams.get("error");
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(urlError ? decodeURIComponent(urlError) : null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password.trim() || loading) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      console.log("LOGIN ATTEMPT", email);
+      const supabase = createClient();
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
+      });
+
+      if (signInError) {
+        console.log("LOGIN ERROR", signInError);
+        console.error("Login failed:", signInError);
+        setError(signInError.message || "Invalid email or password. Please try again.");
+        setLoading(false);
+        router.push("/dashboard");
+        router.refresh();
+      }
+    } catch (err: any) {
+      console.log("LOGIN ERROR", err);
+      console.error("Runtime login failed:", err);
+      setError(err?.message || "An unexpected error occurred. Please try again.");
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-[80vh] flex flex-col justify-center py-6">
@@ -24,15 +61,15 @@ function LoginForm() {
 
       {/* Error Alert Box */}
       {error && (
-        <div className="bg-brand-coral/10 border border-brand-coral/20 text-brand-coral p-4 rounded-2xl text-xs font-semibold flex items-start gap-2 mb-6">
+        <div className="bg-brand-coral/10 border border-brand-coral/20 text-brand-coral p-4 rounded-2xl text-xs font-semibold flex items-start gap-2 mb-6 animate-fade-in">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{decodeURIComponent(error)}</span>
+          <span>{error}</span>
         </div>
       )}
 
       {/* Form Card */}
       <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[32px] p-6 shadow-premium dark:shadow-premium-dark">
-        <form action={login} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           
           {/* Email input */}
           <div className="space-y-1.5">
@@ -45,15 +82,23 @@ function LoginForm() {
                 type="email" 
                 name="email"
                 required
+                disabled={loading}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com" 
-                className="w-full bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-850 focus:border-brand-green dark:focus:border-brand-green rounded-xl pl-11 pr-4 py-3 text-sm outline-none transition-all placeholder:text-slate-400"
+                className="w-full bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-850 focus:border-brand-green dark:focus:border-brand-green rounded-xl pl-11 pr-4 py-3 text-sm outline-none transition-all placeholder:text-slate-400 disabled:opacity-60"
               />
             </div>
           </div>
 
           {/* Password Input */}
           <div className="space-y-1.5">
-            <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Password</label>
+            <div className="flex justify-between items-center">
+              <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Password</label>
+              <Link href="/forgot-password" className="text-[10px] text-brand-green font-bold hover:underline">
+                Forgot Password?
+              </Link>
+            </div>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                 <Key className="w-4 h-4" />
@@ -62,8 +107,11 @@ function LoginForm() {
                 type="password" 
                 name="password"
                 required
+                disabled={loading}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••" 
-                className="w-full bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-850 focus:border-brand-green dark:focus:border-brand-green rounded-xl pl-11 pr-4 py-3 text-sm outline-none transition-all placeholder:text-slate-400"
+                className="w-full bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-850 focus:border-brand-green dark:focus:border-brand-green rounded-xl pl-11 pr-4 py-3 text-sm outline-none transition-all placeholder:text-slate-400 disabled:opacity-60"
               />
             </div>
           </div>
@@ -71,9 +119,18 @@ function LoginForm() {
           {/* Submit Button */}
           <button 
             type="submit"
-            className="w-full bg-brand-green hover:bg-emerald-600 text-white font-semibold text-sm py-3 px-4 rounded-xl shadow-glow active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-2"
+            disabled={loading}
+            className="w-full bg-brand-green hover:bg-emerald-600 disabled:opacity-60 text-white font-semibold text-sm py-3 px-4 rounded-xl shadow-glow active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-2"
           >
-            Sign In <ArrowRight className="w-4 h-4" />
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Signing In...
+              </>
+            ) : (
+              <>
+                Sign In <ArrowRight className="w-4 h-4" />
+              </>
+            )}
           </button>
 
         </form>

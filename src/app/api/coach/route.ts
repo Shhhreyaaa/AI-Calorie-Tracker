@@ -7,12 +7,8 @@ const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
 export async function POST(request: NextRequest) {
   try {
-    // 1. Verify Gemini client setup
     if (!genAI) {
-      return NextResponse.json(
-        { error: "GEMINI_API_KEY environment variable is not configured." },
-        { status: 500 }
-      );
+      console.warn("GEMINI_API_KEY environment variable is not configured. Proceeding to offline mode.");
     }
 
     // 2. Authenticate user via Supabase server-side client
@@ -28,7 +24,7 @@ export async function POST(request: NextRequest) {
 
     // 3. Parse request body
     const body = await request.json();
-    const { messages } = body;
+    const { messages, localMidnight } = body;
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -37,27 +33,47 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 4. Query user goals
-    const { data: goals } = await supabase
-      .from("goals")
-      .select("*")
-      .eq("id", user.id)
-      .single();
+    // Save the user's latest message to the database
+    const userMessageContent = messages[messages.length - 1]?.content;
+    if (userMessageContent) {
+      const { error: dbInsertErr } = await supabase
+        .from("coach_messages")
+        .insert({
+          user_id: user.id,
+          role: "user",
+          message: userMessageContent
+        });
+      if (dbInsertErr) {
+        console.error("Failed to insert user message to DB:", dbInsertErr);
+      }
+    }
 
-    const targetCalories = goals?.calories ?? 2000;
-    const targetProtein = goals?.protein ?? 150;
-    const targetCarbs = goals?.carbs ?? 200;
-    const targetFat = goals?.fat ?? 65;
+    // Fetch profile, weight logs, and meals in parallel using Promise.all to optimize performance
+    const [profileResult, weightResult, todayMealsResult, recentMealsResult] = await Promise.all([
+      supabase.from("users").select("daily_calorie_target, protein_goal, carbs_goal, fat_goal, goal_type, age, height_cm, current_weight, target_weight, activity_level").eq("id", user.id).maybeSingle(),
+      supabase.from("weight_logs").select("weight, created_at").eq("user_id", user.id).order("created_at", { ascending: false }),
+      supabase.from("meals").select("food_name, meal_type, calories, protein, carbs, fat").eq("user_id", user.id).gte("logged_at", (localMidnight ? new Date(localMidnight) : (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })()).toISOString()),
+      supabase.from("meals").select("food_name, calories, protein, carbs, fat, logged_at, meal_type").eq("user_id", user.id).gte("logged_at", (() => { const d = new Date(); d.setDate(d.getDate() - 7); return d; })().toISOString()).order("logged_at", { ascending: false })
+    ]);
 
-    // 5. Query today's meals to calculate daily totals
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const profile = profileResult.data;
+    const weightLogs = weightResult.data;
+    const todayMeals = todayMealsResult.data;
+    const recentMeals = recentMealsResult.data;
 
-    const { data: todayMeals } = await supabase
-      .from("meals")
-      .select("*")
-      .eq("user_id", user.id)
-      .gte("logged_at", today.toISOString());
+    // Fallback logic for legacy goals if profile doesn't have targets
+    let targetCalories = profile?.daily_calorie_target;
+    let targetProtein = profile?.protein_goal;
+    let targetCarbs = profile?.carbs_goal;
+    let targetFat = profile?.fat_goal;
+
+    if (targetCalories === undefined || targetCalories === null) {
+      const { data: legacyGoal } = await supabase.from("goals").select("*").eq("id", user.id).maybeSingle();
+      targetCalories = legacyGoal?.calorie_target ?? legacyGoal?.calories ?? 2000;
+      targetProtein = legacyGoal?.protein_target ?? legacyGoal?.protein ?? 150;
+      targetCarbs = legacyGoal?.carb_target ?? legacyGoal?.carbs ?? 200;
+      targetFat = legacyGoal?.fat_target ?? legacyGoal?.fat ?? 65;
+    }
 
     const consumedCalories = todayMeals?.reduce((sum, m) => sum + m.calories, 0) ?? 0;
     const consumedProtein = todayMeals?.reduce((sum, m) => sum + m.protein, 0) ?? 0;
@@ -69,21 +85,44 @@ export async function POST(request: NextRequest) {
     const remainingCarbs = Math.max(targetCarbs - consumedCarbs, 0);
     const remainingFat = Math.max(targetFat - consumedFat, 0);
 
-    // 6. Query recent meal logs (last 7 days) for context
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const { data: recentMeals } = await supabase
-      .from("meals")
-      .select("food_name, calories, protein, carbs, fat, logged_at, meal_type")
-      .eq("user_id", user.id)
-      .gte("logged_at", sevenDaysAgo.toISOString())
-      .order("logged_at", { ascending: false });
-
     // Format recent meals list for the prompt
     const recentMealsText = recentMeals && recentMeals.length > 0
       ? recentMeals.map(m => `- ${m.food_name} (${m.meal_type}): ${m.calories} kcal (P: ${m.protein}g, C: ${m.carbs}g, F: ${m.fat}g) on ${new Date(m.logged_at).toLocaleDateString()}`).join("\n")
       : "No recent meals logged in the last 7 days.";
+
+    const metadata = user.user_metadata || {};
+    const goal = profile?.goal_type || metadata.goal || "Not set";
+    const age = profile?.age || metadata.age || "Not set";
+    const height = profile?.height_cm || metadata.height || "Not set";
+    const startingWeight = profile?.current_weight || metadata.starting_weight || null;
+    const targetWeight = profile?.target_weight || metadata.target_weight || null;
+    const activity = profile?.activity_level || metadata.activity || "Not set";
+
+    const currentWeight = weightLogs && weightLogs.length > 0 ? Number(weightLogs[0].weight) : startingWeight;
+    const totalWeightLogs = weightLogs?.length || 0;
+
+    // Calculate exact weekly weight change
+    let weeklyWeightChangeText = "No weight logged yet or insufficient data.";
+    if (weightLogs && weightLogs.length >= 2) {
+      const latestW = Number(weightLogs[0].weight);
+      const sevenDaysAgoTime = new Date().getTime() - 7 * 24 * 60 * 60 * 1000;
+      const pastLog = weightLogs.find(wl => new Date(wl.created_at).getTime() <= sevenDaysAgoTime) || weightLogs[weightLogs.length - 1];
+      if (pastLog) {
+        const change = latestW - Number(pastLog.weight);
+        if (change < 0) {
+          weeklyWeightChangeText = `Weight dropped ${Math.abs(change).toFixed(1)}kg this week.`;
+        } else if (change > 0) {
+          weeklyWeightChangeText = `Weight increased ${change.toFixed(1)}kg this week.`;
+        } else {
+          weeklyWeightChangeText = `Weight remained unchanged this week.`;
+        }
+      }
+    }
+
+    // Construct the protein deficit text
+    const proteinDeficitText = remainingProtein > 0 
+      ? `User is exactly ${remainingProtein}g short of protein today.` 
+      : "User has hit their daily protein target.";
 
     // 7. Construct dynamic system prompt with user context
     const systemPrompt = `
@@ -91,6 +130,20 @@ You are an expert AI Nutrition Coach, dietitian, and supportive fitness guide. Y
 
 Here is the current real-time nutritional context for the user:
 - User Email: ${user.email}
+- Onboarding Biometrics & Goals:
+  * Goal Target: ${goal}
+  * Age: ${age} years old
+  * Height: ${height} cm
+  * Starting Weight: ${startingWeight ? `${startingWeight} kg` : "Not set"}
+  * Target Weight: ${targetWeight ? `${targetWeight} kg` : "Not set"}
+  * Activity Index: ${activity}
+- Weight Track Trends:
+  * Current Weight: ${currentWeight ? `${currentWeight} kg` : "No weight logged yet"}
+  * Starting Weight: ${startingWeight ? `${startingWeight} kg` : "N/A"}
+  * Logged Entries Count: ${totalWeightLogs}
+  * Weight Progress: ${startingWeight && currentWeight ? `${(startingWeight - currentWeight).toFixed(1)} kg lost` : "N/A"}
+  * Weekly Trend: ${weeklyWeightChangeText}
+
 - Daily Goal Targets:
   * Calories: ${targetCalories} kcal
   * Protein: ${targetProtein}g
@@ -102,6 +155,7 @@ Here is the current real-time nutritional context for the user:
   * Protein: ${consumedProtein}g (${remainingProtein}g remaining)
   * Carbs: ${consumedCarbs}g (${remainingCarbs}g remaining)
   * Fat: ${consumedFat}g (${remainingFat}g remaining)
+  * Protein Deficit Context: ${proteinDeficitText}
 
 - Today's Logged Meals:
 ${todayMeals && todayMeals.length > 0 
@@ -114,47 +168,184 @@ ${recentMealsText}
 Instruction Guidelines:
 1. Provide highly personalized, actionable advice based on the user's goals, remaining macro targets, and recent eating patterns.
 2. Be supportive, concise, energetic, and professional.
-3. If they ask about hitting protein, suggest specific high-protein foods or snacks that fit their remaining calorie/fat budgets.
-4. If they ask if they are eating enough, evaluate their calorie targets vs actual intake, and comment on nutritional density.
-5. If they ask for dinner/meal suggestions, look at what they have already eaten today and suggest a meal that balances out their remaining macros. For example, if they are low on protein and high on carbs, suggest a high-protein, low-carb meal.
-6. Keep recommendations realistic, focusing on whole foods.
-7. Respond using clean, simple markdown. Do not include markdown code block syntax around the entire text, just normal text styling.
+3. INSTEAD OF GENERIC CHAT, provide specific, mathematically precise recommendations based on the calculations.
+   - If they have a protein shortfall, tell them exactly how much they are short of, and suggest a specific food option to resolve it (e.g. "You're 22g short of protein today. Add 100g chicken breast tonight.")
+   - If their weight dropped or increased, state the trend directly and give advice (e.g. "Weight dropped 0.7kg this week. Keep calories unchanged.")
+4. If they ask about hitting protein, suggest specific high-protein foods or snacks that fit their remaining calorie/fat budgets.
+5. If they ask if they are eating enough, evaluate their calorie targets vs actual intake, and comment on nutritional density.
+6. If they ask for dinner/meal suggestions, look at what they have already eaten today and suggest a meal that balances out their remaining macros. For example, if they are low on protein and high on carbs, suggest a high-protein, low-carb meal.
+7. Keep recommendations realistic, focusing on whole foods.
+8. Respond using clean, simple markdown. Do not include markdown code block syntax around the entire text, just normal text styling.
 `;
 
-    // 8. Call Gemini client
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      systemInstruction: systemPrompt,
-    });
+    // 8. Call Gemini client with fallback models and retry logic
+    const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"];
+    let responseText = "";
+    let lastError: any = null;
+    let modelUsed = "";
+    const maxRetries = 3;
+
+    // Query the database to get the actual history including the message we just inserted
+    const { data: dbMessages, error: dbQueryErr } = await supabase
+      .from("coach_messages")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true });
+
+    if (dbQueryErr) {
+      console.error("Failed to query messages from DB:", dbQueryErr);
+    }
 
     // Format chat history for Google Generative AI SDK
-    // SDK expects: { role: 'user'|'model', parts: [{ text: string }] }[]
-    const chatHistory = messages.map((m: any) => ({
+    const chatHistory = (dbMessages || []).map((m: any) => ({
       role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
+      parts: [{ text: m.message }],
     }));
 
-    // Separate history from the latest message
-    const latestMessage = chatHistory[chatHistory.length - 1];
-    const historicalMessages = chatHistory.slice(0, -1);
+    // Separate history from the latest message (or use the last logged if history is empty)
+    const latestMessage = chatHistory.length > 0 
+      ? chatHistory[chatHistory.length - 1] 
+      : { role: "user", parts: [{ text: userMessageContent || "" }] };
+    const historicalMessages = chatHistory.length > 1 
+      ? chatHistory.slice(0, -1) 
+      : [];
 
-    const chat = model.startChat({
-      history: historicalMessages,
-    });
+    if (genAI) {
+      for (const modelName of modelsToTry) {
+        let attempt = 0;
+        let shouldFallback = false;
 
-    const result = await chat.sendMessage(latestMessage.parts[0].text);
-    const responseText = result.response.text();
+        while (attempt < maxRetries) {
+          attempt++;
+          try {
+            console.log("-----------------------------------------");
+            console.log(`[Coach Gemini Request] Model: ${modelName} | Attempt: ${attempt}/${maxRetries}`);
+            
+            const model = genAI.getGenerativeModel({
+              model: modelName,
+              systemInstruction: systemPrompt,
+            });
+
+            const chat = model.startChat({
+              history: historicalMessages,
+            });
+
+            console.log(`=== BEFORE COACH GEMINI API CALL for model ${modelName} (Attempt ${attempt}) ===`);
+            const result = await chat.sendMessage(latestMessage.parts[0].text);
+            console.log(`=== AFTER COACH GEMINI API CALL for model ${modelName} (Attempt ${attempt}) ===`);
+            
+            responseText = result.response.text();
+            if (responseText) {
+              modelUsed = modelName;
+              console.log(`[Coach Gemini Success] Model: ${modelName} | Status: 200 OK`);
+              break; // Break the retry loop
+            }
+          } catch (err: any) {
+            console.log(`=== AFTER COACH GEMINI API CALL (FAILED) for model ${modelName} (Attempt ${attempt}) ===`);
+            console.error(`Coach Model ${modelName} failed on attempt ${attempt}.`);
+            console.error(`[Coach Gemini Error] Message:`, err.message || err);
+            
+            lastError = err;
+
+            // Extract HTTP status code from the error
+            const statusMatch = err.message ? err.message.match(/\[(\d+)\]/) : null;
+            const status = err.status || err.statusCode || (statusMatch ? parseInt(statusMatch[1], 10) : null);
+            console.error(`[Coach Gemini Error Details] Extracted Status: ${status}`);
+
+            // Retryable status codes: 429, 500, 502, 503, 504. Fall back to next model if they fail after maxRetries.
+            const isFallbackEligible = !status || [429, 500, 502, 503, 504].includes(status);
+
+            if (!isFallbackEligible) {
+              console.log(`[Coach Gemini Error] Non-retryable status ${status}. Aborting fallback chain.`);
+              shouldFallback = false;
+              break;
+            }
+
+            shouldFallback = true;
+
+            if (attempt < maxRetries) {
+              const backoffMs = Math.pow(2, attempt - 1) * 1000;
+              console.log(`[Coach Gemini Retry] Waiting ${backoffMs}ms before attempt ${attempt + 1}...`);
+              await new Promise((resolve) => setTimeout(resolve, backoffMs));
+            } else {
+              console.log(`[Coach Gemini Fallback] Max retries reached for ${modelName}.`);
+              break;
+            }
+          }
+        }
+
+        if (responseText) {
+          break; // Succeeded! Break the fallback loop.
+        }
+
+        if (!shouldFallback) {
+          break;
+        }
+
+        const nextIndex = modelsToTry.indexOf(modelName) + 1;
+        if (nextIndex < modelsToTry.length) {
+          console.log(`[Coach Gemini Fallback] Selected next fallback model: ${modelsToTry[nextIndex]}`);
+        }
+      }
+    }
+
+    if (!responseText) {
+      const errorMessage = lastError?.message || "All models failed or returned empty responses.";
+      console.error("Coach Gemini Analysis Pipeline Error:", errorMessage);
+      
+      const fallbackReply = `Hello! It looks like my AI engine is currently busy or out of quota. However, looking at your current logs:
+- Consumed: ${consumedCalories} kcal / Target: ${targetCalories} kcal
+- Protein: ${consumedProtein}g / Target: ${targetProtein}g
+- Carbs: ${consumedCarbs}g / Target: ${targetCarbs}g
+- Fat: ${consumedFat}g / Target: ${targetFat}g
+
+Based on this, ${
+        remainingProtein > 20 
+          ? `I suggest focusing on protein for your next meal (you need ${remainingProtein}g more). Try adding some chicken breast, turkey, eggs, fish, paneer, or Greek yogurt to hit your target.` 
+          : `your protein is looking good today! Keep up the healthy choices.`
+      } Let me know if you have any questions or when my server is back online!`;
+
+      // Save the fallback assistant message to the database
+      const { error: dbAssistantInsertErr } = await supabase
+        .from("coach_messages")
+        .insert({
+          user_id: user.id,
+          role: "assistant",
+          message: fallbackReply
+        });
+      if (dbAssistantInsertErr) {
+        console.error("Failed to insert assistant message to DB:", dbAssistantInsertErr);
+      }
+
+      return NextResponse.json({
+        success: true,
+        modelUsed: "offline-fallback",
+        reply: fallbackReply,
+      });
+    }
+
+    // Save the AI's reply to the database
+    const { error: dbAssistantInsertErr } = await supabase
+      .from("coach_messages")
+      .insert({
+        user_id: user.id,
+        role: "assistant",
+        message: responseText
+      });
+    if (dbAssistantInsertErr) {
+      console.error("Failed to insert assistant message to DB:", dbAssistantInsertErr);
+    }
 
     return NextResponse.json({
       success: true,
+      modelUsed: modelUsed,
       reply: responseText,
     });
 
   } catch (error: any) {
     console.error("AI Coach API Route Error:", error);
     return NextResponse.json(
-      { error: error.message || "An unexpected error occurred in the coach api." },
-      { status: 500 }
+      { success: false, error: "AI service is temporarily busy. Please try again in a few moments." }
     );
   }
 }

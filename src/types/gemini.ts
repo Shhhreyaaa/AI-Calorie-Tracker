@@ -6,6 +6,9 @@ export interface GeminiAnalysisResult {
   fat: number;
   confidence: number;
   ingredients: string[];
+  health_score: number;
+  good_for: string;
+  suggestions: string[];
 }
 
 export interface AnalyzeAPIResponse {
