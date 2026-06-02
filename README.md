@@ -112,6 +112,8 @@
 
 ### Streak System
 <img width="100%" src="screenshots/streaks.png" />
+
+
 ### Coach
 <img width="100%" src="screenshots/coach.png" />
 
