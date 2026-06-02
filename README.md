@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # AI Calorie Tracker 🥗📸
 
 A state-of-the-art AI-powered calorie tracking application designed to simplify nutritional monitoring. Using advanced Computer Vision and Retrieval-Augmented Generation (RAG), the tracker allows users to upload photos of their meals, receive instant ingredient and calorie breakdowns, and maintain an interactive logs dashboard.
@@ -24,3 +25,6 @@ AI-Calorie-Tracker/
 - **Frontend**: HTML5, Vanilla CSS (harmonious dark/light modes), JavaScript (ES6+)
 - **Core Engine**: RAG and Computer Vision interfaces
 - **Styling**: Sleek modern typography (Outfit/Inter), custom glassmorphism components, and responsive grid layouts.
+=======
+# AI-Calorie-Tracker
+>>>>>>> 3ed476b94c87ebbfed3151495b52c537c15c3544
