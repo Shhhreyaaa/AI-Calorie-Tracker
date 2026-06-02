@@ -12,9 +12,11 @@
 
 ## 🚀 Live Demo
 
-🔗 **Live App:** [Add Your Deployed Link Here]
+🔗 **Live App:** myaicalorietracker.vercel.app
 
-🔗 **GitHub Repository:** [Add Your Repository Link Here]
+🔗 **GitHub Repository:** https://github.com/Shhhreyaaa/AI-Calorie-Tracker.git
+
+
 
 ---
 
@@ -237,16 +239,8 @@ Building this project helped me gain experience with:
 
 **Shreyaa Somi**
 
-📧 Email: your-email@example.com
-
-🔗 LinkedIn: Add LinkedIn URL
-
-🔗 Portfolio: Add Portfolio URL
-
----
 
 ## ⭐ Support
 
 If you found this project interesting, consider giving it a star ⭐ on GitHub.
 
-It helps others discover the project and supports future development.
