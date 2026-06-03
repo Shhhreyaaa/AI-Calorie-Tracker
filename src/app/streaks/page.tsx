@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { 
   Flame, 
@@ -21,6 +21,7 @@ import {
 import { getAndUpdateActiveStreak } from "@/app/meals/actions";
 import { createClient } from "@/lib/supabase/client";
 import { AnimatePresence } from "framer-motion";
+import { useApp } from "@/lib/context/AppContext";
 
 // Dynamic client-side import for html2canvas
 let html2canvas: any = null;
@@ -34,32 +35,16 @@ export default function StreaksPage() {
   const router = useRouter();
   const cardRef = useRef<HTMLDivElement>(null);
   
-  const [loading, setLoading] = useState(true);
-  const [streakDays, setStreakDays] = useState(0);
-  const [longestStreak, setLongestStreak] = useState(0);
-  const [targetRate, setTargetRate] = useState(0);
-  const [loggedDates, setLoggedDates] = useState<string[]>([]);
-  const [weightLogsCount, setWeightLogsCount] = useState(0);
-  const [hasLoggedWeightToday, setHasLoggedWeightToday] = useState(false);
-  const [allMealsCount, setAllMealsCount] = useState(0);
+  const { 
+    user,
+    profile, 
+    streak: streakData, 
+    meals, 
+    weightLogs, 
+    loading: contextLoading, 
+    refreshAll 
+  } = useApp();
 
-  // Profile data
-  const [fullName, setFullName] = useState("User");
-  const [startingWeight, setStartingWeight] = useState(75);
-  const [targetWeight, setTargetWeight] = useState(70);
-
-  // Today's totals and goals states
-  const [todayCalories, setTodayCalories] = useState(0);
-  const [todayProtein, setTodayProtein] = useState(0);
-  const [todayCarbs, setTodayCarbs] = useState(0);
-  const [todayFat, setTodayFat] = useState(0);
-
-  const [goalCalories, setGoalCalories] = useState(2000);
-  const [goalProtein, setGoalProtein] = useState(150);
-  const [goalCarbs, setGoalCarbs] = useState(200);
-  const [goalFat, setGoalFat] = useState(65);
-
-  // Water logs (glasses of 250ml)
   const [waterLogged, setWaterLogged] = useState(0);
 
   // Share Card states
@@ -67,105 +52,72 @@ export default function StreaksPage() {
   const [activeShareTab, setActiveShareTab] = useState<"protein" | "streak" | "weight" | "macros">("protein");
   const [isGeneratingCard, setIsGeneratingCard] = useState(false);
 
-  const fetchStreakStats = async () => {
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.push("/login");
-        return;
-      }
-
-      // Load water log from localStorage
-      const todayStr = new Date().toISOString().split("T")[0];
-      const localWater = localStorage.getItem(`water_${user.id}_${todayStr}`);
-      if (localWater) {
-        setWaterLogged(Number(localWater));
-      }
-
-      // Fetch streak stats, weight logs, total meals, user profile, and today's meals in parallel
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const [stats, weightRes, mealsAllRes, userRes, mealsTodayRes] = await Promise.all([
-        getAndUpdateActiveStreak(tz).catch(err => {
-          console.error("Streak calculation error:", err);
-          return null;
-        }),
-        supabase.from("weight_logs").select("created_at, weight").eq("user_id", user.id),
-        supabase.from("meals").select("id").eq("user_id", user.id),
-        supabase.from("users").select("full_name, daily_calorie_target, protein_goal, carbs_goal, fat_goal, current_weight, target_weight").eq("id", user.id).maybeSingle(),
-        supabase.from("meals").select("calories, protein, carbs, fat").eq("user_id", user.id).gte("logged_at", today.toISOString())
-      ]);
-
-      if (stats) {
-        setStreakDays(stats.current_streak || 0);
-        setLongestStreak(stats.longest_streak || 0);
-        setTargetRate(stats.target_rate || 0);
-        setLoggedDates((stats.unique_logged_days || []) as string[]);
-      }
-
-      const weightData = weightRes.data;
-      setWeightLogsCount(weightData?.length || 0);
-
-      // Check if logged weight today
-      const hasWeightToday = weightData?.some(wl => {
-        const logDate = new Date(wl.created_at).toISOString().split("T")[0];
-        return logDate === todayStr;
-      }) || false;
-      setHasLoggedWeightToday(hasWeightToday);
-
-      const mealsAll = mealsAllRes.data;
-      setAllMealsCount(mealsAll?.length || 0);
-
-      const userData = userRes.data;
-      if (userData) {
-        setGoalCalories(userData.daily_calorie_target ?? 2000);
-        setGoalProtein(userData.protein_goal ?? 150);
-        setGoalCarbs(userData.carbs_goal ?? 200);
-        setGoalFat(userData.fat_goal ?? 65);
-        setFullName(userData.full_name || "Athlete");
-        setStartingWeight(userData.current_weight || 75);
-        setTargetWeight(userData.target_weight || 70);
-      } else {
-        // Fallback check on legacy goals
-        const { data: goalData } = await supabase
-          .from("goals")
-          .select("*")
-          .eq("id", user.id)
-          .maybeSingle();
-        if (goalData) {
-          setGoalCalories(goalData.calories);
-          setGoalProtein(goalData.protein);
-          setGoalCarbs(goalData.carbs);
-          setGoalFat(goalData.fat);
-        }
-      }
-
-      const mealsData = mealsTodayRes.data;
-      if (mealsData) {
-        const sumCalories = mealsData.reduce((sum, m) => sum + m.calories, 0);
-        const sumProtein = mealsData.reduce((sum, m) => sum + m.protein, 0);
-        const sumCarbs = mealsData.reduce((sum, m) => sum + m.carbs, 0);
-        const sumFat = mealsData.reduce((sum, m) => sum + m.fat, 0);
-
-        setTodayCalories(sumCalories);
-        setTodayProtein(sumProtein);
-        setTodayCarbs(sumCarbs);
-        setTodayFat(sumFat);
-      }
-
-    } catch (err) {
-      console.error("Failed to load streak stats:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Load water log from localStorage
   useEffect(() => {
-    fetchStreakStats();
-  }, []);
+    if (!user) return;
+    const todayStr = new Date().toISOString().split("T")[0];
+    const localWater = localStorage.getItem(`water_${user.id}_${todayStr}`);
+    if (localWater) {
+      setWaterLogged(Number(localWater));
+    }
+  }, [user]);
+
+  // Derived stats from global context
+  const streakDays = useMemo(() => streakData?.current_streak || 0, [streakData]);
+  const longestStreak = useMemo(() => streakData?.longest_streak || 0, [streakData]);
+  const targetRate = useMemo(() => streakData?.target_rate || 0, [streakData]);
+  const loggedDates = useMemo(() => (streakData?.unique_logged_days || []) as string[], [streakData]);
+  
+  const weightLogsCount = useMemo(() => weightLogs?.length || 0, [weightLogs]);
+  const hasLoggedWeightToday = useMemo(() => {
+    const todayStr = new Date().toISOString().split("T")[0];
+    return weightLogs?.some(wl => {
+      const logDate = new Date(wl.created_at).toISOString().split("T")[0];
+      return logDate === todayStr;
+    }) || false;
+  }, [weightLogs]);
+
+  const allMealsCount = useMemo(() => meals?.length || 0, [meals]);
+
+  const fullName = useMemo(() => profile?.full_name || profile?.display_name || "Athlete", [profile]);
+  const startingWeight = useMemo(() => profile?.current_weight || 75, [profile]);
+  const targetWeight = useMemo(() => profile?.target_weight || 70, [profile]);
+
+  // Compute today's meals
+  const todayMeals = useMemo(() => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const getLocalDateStr = (date: Date) => {
+      try {
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: tz,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit"
+        }).formatToParts(date);
+        const year = parts.find(p => p.type === "year")?.value;
+        const month = parts.find(p => p.type === "month")?.value;
+        const day = parts.find(p => p.type === "day")?.value;
+        return `${year}-${month}-${day}`;
+      } catch (e) {
+        return date.toISOString().split("T")[0];
+      }
+    };
+    const todayStr = getLocalDateStr(new Date());
+    return meals.filter(m => getLocalDateStr(new Date(m.logged_at)) === todayStr);
+  }, [meals]);
+
+  // Today's nutrient sums
+  const todayCalories = useMemo(() => todayMeals.reduce((sum, m) => sum + m.calories, 0), [todayMeals]);
+  const todayProtein = useMemo(() => todayMeals.reduce((sum, m) => sum + m.protein, 0), [todayMeals]);
+  const todayCarbs = useMemo(() => todayMeals.reduce((sum, m) => sum + m.carbs, 0), [todayMeals]);
+  const todayFat = useMemo(() => todayMeals.reduce((sum, m) => sum + m.fat, 0), [todayMeals]);
+
+  const goalCalories = useMemo(() => profile?.daily_calorie_target ?? 2000, [profile]);
+  const goalProtein = useMemo(() => profile?.protein_goal ?? 150, [profile]);
+  const goalCarbs = useMemo(() => profile?.carbs_goal ?? 200, [profile]);
+  const goalFat = useMemo(() => profile?.fat_goal ?? 65, [profile]);
+
+  const loading = contextLoading;
 
   const handleUpdateWater = (val: number) => {
     const newVal = Math.max(0, waterLogged + val);

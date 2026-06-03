@@ -218,51 +218,42 @@ export default function AnalyticsPage() {
   // PDF Export Trigger
   const handleExportPDF = useCallback(async () => {
     setExportingPDF(true);
-    console.log("PDF Export Clicked");
-    console.log("Generating Report");
     try {
       console.log("[PDF Export] Importing html2canvas-pro and jspdf dynamically...");
       const html2canvasModule = await import("html2canvas-pro");
       const html2canvas = html2canvasModule.default || html2canvasModule;
-      console.log("[PDF Export] html2canvas resolved:", !!html2canvas);
 
       const jspdfModule = await import("jspdf");
       const jsPDF = jspdfModule.jsPDF || jspdfModule.default || jspdfModule;
-      console.log("[PDF Export] jsPDF resolved:", !!jsPDF);
 
-      const reportEl = document.getElementById("analytics-print-report");
-      console.log("[PDF Export] reportEl:", reportEl);
-      if (!reportEl) {
-        throw new Error("PDF report element not found in DOM");
-      }
-
-      console.log("Generating Canvas");
-      const canvas = await html2canvas(reportEl, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#0B1329",
-        logging: true
-      });
-      console.log("[PDF Export] html2canvas done. Canvas size:", canvas.width, "x", canvas.height);
-
-      const imgData = canvas.toDataURL("image/png");
-      console.log("[PDF Export] imgData generated, length:", imgData.length);
-
-      console.log("[PDF Export] Initializing jsPDF...");
       const pdf = new jsPDF("p", "mm", "a4");
       const pdfWidth = 210;
       const pdfHeight = 297;
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
-      console.log("[PDF Export] PDF layout:", pdfWidth, "x", pdfHeight, "Image height:", imgHeight);
+      const pages = ["pdf-page-1", "pdf-page-2", "pdf-page-3"];
 
-      console.log("[PDF Export] Rendering page...");
-      pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
-      console.log("PDF Created");
-      
-      console.log("[PDF Export] Saving file...");
-      pdf.save("weekly-nutrition-report.pdf");
-      console.log("Export Finished");
+      for (let i = 0; i < pages.length; i++) {
+        const pageId = pages[i];
+        const pageEl = document.getElementById(pageId);
+        if (!pageEl) {
+          throw new Error(`PDF report page element ${pageId} not found in DOM`);
+        }
+
+        const canvas = await html2canvas(pageEl, {
+          scale: 2.0,
+          useCORS: true,
+          backgroundColor: "#0B1329",
+          logging: false
+        });
+
+        const imgData = canvas.toDataURL("image/png");
+        if (i > 0) {
+          pdf.addPage();
+        }
+        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      }
+
+      const fileName = `weekly-nutrition-report-${userName.toLowerCase().replace(/\s+/g, "-")}.pdf`;
+      pdf.save(fileName);
       setToastMessage("Weekly report PDF exported successfully.");
     } catch (error: any) {
       console.error("PDF EXPORT ERROR:", error);
@@ -270,7 +261,7 @@ export default function AnalyticsPage() {
     } finally {
       setExportingPDF(false);
     }
-  }, []);
+  }, [userName]);
 
   // PNG Social Share Card Download
   const handleDownloadPNG = useCallback(async () => {
@@ -312,6 +303,44 @@ export default function AnalyticsPage() {
     }
   }, []);
 
+  // calculations
+  const totalCal = weeklyLogs.reduce((s, d) => s + d.calories, 0);
+  const totalProtein = weeklyLogs.reduce((s, d) => s + d.protein, 0);
+  const totalCarbs = weeklyLogs.reduce((s, d) => s + d.carbs, 0);
+  const totalFat = weeklyLogs.reduce((s, d) => s + d.fat, 0);
+
+  const loggedDaysCount = weeklyLogs.filter(d => d.isLogged).length;
+  const avgCal = loggedDaysCount > 0 ? Math.round(totalCal / loggedDaysCount) : 0;
+  const avgProt = loggedDaysCount > 0 ? Math.round(totalProtein / loggedDaysCount) : 0;
+  const avgCarb = loggedDaysCount > 0 ? Math.round(totalCarbs / loggedDaysCount) : 0;
+  const avgFat = loggedDaysCount > 0 ? Math.round(totalFat / loggedDaysCount) : 0;
+
+  const currentWeight = weightLogs.length > 0 ? Number(weightLogs[0].weight) : null;
+  const startWeight = weightLogs.length > 0 ? Number(weightLogs[weightLogs.length - 1].weight) : null;
+  const weightChange = currentWeight !== null && startWeight !== null ? currentWeight - startWeight : 0;
+
+  // Weight Prediction: average deficit = consumed - target
+  const dailyTargetCalories = userGoals.calories;
+  const loggedDays = weeklyLogs.filter(d => d.isLogged);
+  const avgDailyDeficit = loggedDays.length > 0
+    ? loggedDays.reduce((sum, d) => sum + (d.calories - dailyTargetCalories), 0) / loggedDays.length
+    : 0;
+
+  // predicted weight change in 30 days
+  const predictedWeightChange = (avgDailyDeficit * 30) / 7700;
+  const predictedWeight30Days = currentWeight !== null ? currentWeight + predictedWeightChange : null;
+
+  // confidence assessment based on logging consistency (last 7 days)
+  const confidenceLevel = loggedDaysCount >= 5 ? "High" : loggedDaysCount >= 3 ? "Medium" : "Low";
+
+  // Average macros calculation for PieChart
+  const avgMacros = useMemo(() => [
+    { name: "Protein", value: avgProt || 130, color: "#10B981" },
+    { name: "Carbohydrates", value: avgCarb || 192, color: "#0EA5E9" },
+    { name: "Fat", value: avgFat || 59, color: "#F43F5E" }
+  ], [avgProt, avgCarb, avgFat]);
+  const totalMacroGram = useMemo(() => avgMacros.reduce((s, m) => s + m.value, 0), [avgMacros]);
+
   const loading = contextLoading;
 
   if (!mounted || (loading && meals.length === 0)) {
@@ -347,44 +376,6 @@ export default function AnalyticsPage() {
       </div>
     );
   }
-
-  // calculations
-  const totalCal = weeklyLogs.reduce((s, d) => s + d.calories, 0);
-  const totalProtein = weeklyLogs.reduce((s, d) => s + d.protein, 0);
-  const totalCarbs = weeklyLogs.reduce((s, d) => s + d.carbs, 0);
-  const totalFat = weeklyLogs.reduce((s, d) => s + d.fat, 0);
-
-  const loggedDaysCount = weeklyLogs.filter(d => d.isLogged).length;
-  const avgCal = loggedDaysCount > 0 ? Math.round(totalCal / loggedDaysCount) : 0;
-  const avgProt = loggedDaysCount > 0 ? Math.round(totalProtein / loggedDaysCount) : 0;
-  const avgCarb = loggedDaysCount > 0 ? Math.round(totalCarbs / loggedDaysCount) : 0;
-  const avgFat = loggedDaysCount > 0 ? Math.round(totalFat / loggedDaysCount) : 0;
-
-  const currentWeight = weightLogs.length > 0 ? Number(weightLogs[0].weight) : null;
-  const startWeight = weightLogs.length > 0 ? Number(weightLogs[weightLogs.length - 1].weight) : null;
-  const weightChange = currentWeight !== null && startWeight !== null ? currentWeight - startWeight : 0;
-
-  // Weight Prediction: average deficit = consumed - target
-  const dailyTargetCalories = userGoals.calories;
-  const loggedDays = weeklyLogs.filter(d => d.isLogged);
-  const avgDailyDeficit = loggedDays.length > 0
-    ? loggedDays.reduce((sum, d) => sum + (d.calories - dailyTargetCalories), 0) / loggedDays.length
-    : 0;
-
-  // predicted weight change in 30 days
-  const predictedWeightChange = (avgDailyDeficit * 30) / 7700;
-  const predictedWeight30Days = currentWeight !== null ? currentWeight + predictedWeightChange : null;
-
-  // confidence assessment based on logging consistency (last 7 days)
-  const confidenceLevel = loggedDaysCount >= 5 ? "High" : loggedDaysCount >= 3 ? "Medium" : "Low";
-
-  // Average macros calculation for PieChart
-  const avgMacros = [
-    { name: "Protein", value: avgProt || 130, color: "#10B981" },
-    { name: "Carbohydrates", value: avgCarb || 192, color: "#0EA5E9" },
-    { name: "Fat", value: avgFat || 59, color: "#F43F5E" }
-  ];
-  const totalMacroGram = avgMacros.reduce((s, m) => s + m.value, 0);
 
   // Metric configs
   const metricConfigs = {
@@ -701,100 +692,286 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Hidden Print Container for PDF Export (Rendered offscreen for clean layout rendering) */}
+      {/* Hidden Print Container for PDF Export (Rendered offscreen for clean layout rendering) */}
       <div 
         id="analytics-print-report" 
-        style={{ position: "fixed", left: "-9999px", top: 0, width: "800px", padding: "40px", zIndex: -50 }} 
-        className="bg-[#0B1329] text-white space-y-6"
+        style={{ position: "fixed", left: "-9999px", top: 0, width: "794px", zIndex: -50 }} 
+        className="text-white space-y-0"
       >
-        <div className="flex justify-between items-center border-b border-slate-800 pb-4">
-          <div>
-            <h1 className="font-outfit text-2xl font-bold tracking-tight text-brand-green">AI Weekly Report for {userName}</h1>
-            <p className="text-xs text-slate-400">Generated on: {new Date().toLocaleDateString()}</p>
-          </div>
-          <div className="text-right">
-            <span className="font-outfit font-black text-xl text-brand-sky uppercase">Premium Analytics</span>
-          </div>
-        </div>
+        {/* PAGE 1: COVER PAGE */}
+        <div id="pdf-page-1" style={{ width: "794px", height: "1123px", padding: "80px 60px", boxSizing: "border-box" }} className="bg-[#0B1329] flex flex-col justify-between relative overflow-hidden">
+          {/* Neon Glow Accents */}
+          <div className="absolute -top-40 -right-40 w-96 h-96 bg-brand-green/10 rounded-full blur-3xl" />
+          <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-brand-sky/10 rounded-full blur-3xl" />
+          
+          <div className="space-y-12">
+            {/* Branding Header */}
+            <div className="flex items-center gap-2 border-b border-white/10 pb-6">
+              <span className="w-3 h-3 rounded-full bg-brand-green shadow-[0_0_10px_#10B981]" />
+              <span className="font-outfit font-black text-xs tracking-widest uppercase bg-clip-text text-transparent bg-gradient-to-r from-emerald-450 to-brand-sky">
+                AI CALORIE TRACKER PREMIUM
+              </span>
+            </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-[#111A35] p-4 rounded-2xl border border-slate-800 text-center">
-            <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Average Daily Calories</span>
-            <div className="font-outfit text-2xl font-black text-white mt-1">{avgCal} kcal</div>
-            <span className="text-[10px] text-slate-400 mt-1 block">Goal: {userGoals.calories} kcal</span>
-          </div>
-          <div className="bg-[#111A35] p-4 rounded-2xl border border-slate-800 text-center">
-            <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Daily Logging Habits</span>
-            <div className="font-outfit text-2xl font-black text-brand-green mt-1">{consistencyRate}%</div>
-            <span className="text-[10px] text-slate-400 mt-1 block">{loggedDaysCount} / 7 days tracked</span>
-          </div>
-          <div className="bg-[#111A35] p-4 rounded-2xl border border-slate-800 text-center">
-            <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Streak Duration</span>
-            <div className="font-outfit text-2xl font-black text-brand-coral mt-1">{streak} Days</div>
-            <span className="text-[10px] text-slate-400 mt-1 block">Streak Active 🔥</span>
-          </div>
-        </div>
+            {/* Main Cover Title */}
+            <div className="space-y-4 pt-16">
+              <span className="text-[10px] text-brand-green font-bold uppercase tracking-widest bg-brand-green/10 px-3 py-1 rounded-full w-fit block">
+                Executive Dossier
+              </span>
+              <h1 className="font-outfit text-4xl font-black tracking-tight leading-tight text-white uppercase">
+                Weekly Health &<br />Nutrition Audit
+              </h1>
+              <div className="w-20 h-1.5 bg-gradient-to-r from-brand-green to-brand-sky rounded-full" />
+            </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-[#111A35] p-4 rounded-2xl border border-slate-800">
-            <h3 className="font-outfit text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">7-Day Intake Trend</h3>
-            <table className="w-full text-xs text-left">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-450 pb-1">
-                  <th>Day</th>
-                  <th>Calories</th>
-                  <th>Protein</th>
-                  <th>Carbs</th>
-                  <th>Fat</th>
-                </tr>
-              </thead>
-              <tbody>
-                {weeklyLogs.map((log, index) => (
-                  <tr key={index} className="border-b border-slate-800/40">
-                    <td className="py-2 font-bold">{log.day}</td>
-                    <td className="py-2 text-brand-green">{log.calories} kcal</td>
-                    <td className="py-2">{log.protein}g</td>
-                    <td className="py-2">{log.carbs}g</td>
-                    <td className="py-2">{log.fat}g</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {/* Metadata Card */}
+            <div className="bg-white/5 border border-white/10 rounded-[24px] p-6 space-y-4 backdrop-blur-md max-w-md">
+              <div className="space-y-1">
+                <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider block">Prepared For</span>
+                <span className="font-outfit text-xl font-bold text-slate-100">{userName}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
+                <div>
+                  <span className="text-[8px] text-slate-400 uppercase font-bold tracking-wider block">Report Date</span>
+                  <span className="text-xs font-bold text-slate-200">{new Date().toLocaleDateString()}</span>
+                </div>
+                <div>
+                  <span className="text-[8px] text-slate-400 uppercase font-bold tracking-wider block">Dossier Period</span>
+                  <span className="text-xs font-bold text-slate-200">Last 7 Days</span>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="bg-[#111A35] p-4 rounded-2xl border border-slate-800 space-y-4">
-            <h3 className="font-outfit text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Dietary Target Report</h3>
-            <div className="space-y-3 text-xs">
-              <div className="flex justify-between">
-                <span>Avg Protein Intake</span>
-                <span className="font-bold text-brand-green">{avgProt}g / {userGoals.protein}g target</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Avg Carbohydrates</span>
-                <span className="font-bold text-brand-sky">{avgCarb}g / {userGoals.carbs}g target</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Avg Fat Intake</span>
-                <span className="font-bold text-brand-coral">{avgFat}g / {userGoals.fat}g target</span>
-              </div>
-              <div className="flex justify-between border-t border-slate-800 pt-2">
-                <span>Weight Prognosis (30d)</span>
-                <span className="font-bold text-slate-200">
-                  {predictedWeight30Days ? `${predictedWeight30Days.toFixed(1)} kg (${predictedWeightChange >= 0 ? "+" : ""}${predictedWeightChange.toFixed(1)} kg)` : "N/A"}
-                </span>
-              </div>
+          {/* Cover Footer / Executive Presentation */}
+          <div className="space-y-6">
+            <p className="text-xs text-slate-400 leading-relaxed max-w-lg">
+              This comprehensive health dossier evaluates your caloric consistency, macronutrient partitions, body composition velocity, and daily tracking behaviors over the past week. Included are precise forecast modeling, nutritional efficiency breakdowns, and custom AI coach integrations designed to optimize your recovery and metabolic performance.
+            </p>
+            <div className="text-[9px] text-slate-500 font-medium uppercase tracking-widest border-t border-white/5 pt-4">
+              Confidential Document &bull; Personal Fitness Analytics
             </div>
           </div>
         </div>
 
-        <div className="bg-[#111A35] p-4 rounded-2xl border border-slate-800 text-center">
-          <span className="text-[10px] text-slate-405 font-bold uppercase tracking-wider block mb-1">AI Recommendation Summary</span>
-          <p className="text-xs text-slate-300 leading-relaxed font-semibold italic">
-            "Your protein intake average of {avgProt}g is within target limits. Deficits calculated indicate stable weight loss progress. Keep active logs to sustain the streak."
-          </p>
+        {/* PAGE 2: GOALS & PROGRESS */}
+        <div id="pdf-page-2" style={{ width: "794px", height: "1123px", padding: "80px 60px", boxSizing: "border-box" }} className="bg-[#0B1329] flex flex-col justify-between relative overflow-hidden">
+          <div className="space-y-8">
+            {/* Header */}
+            <div className="flex justify-between items-center border-b border-white/10 pb-4">
+              <span className="text-[9px] text-slate-400 uppercase font-bold tracking-widest">Section 01</span>
+              <span className="font-outfit text-xs font-bold text-slate-400">METABOLIC PROFILE & WEIGHT VELOCITY</span>
+            </div>
+
+            {/* Biometric Profiles Grid */}
+            <div className="grid grid-cols-4 gap-4">
+              <div className="bg-[#111A35]/60 border border-white/5 rounded-2xl p-4">
+                <span className="text-[8px] text-slate-450 uppercase font-bold tracking-wider block">Current Weight</span>
+                <span className="font-outfit text-lg font-black text-white mt-1 block">
+                  {currentWeight ? `${currentWeight} kg` : "N/A"}
+                </span>
+              </div>
+              <div className="bg-[#111A35]/60 border border-white/5 rounded-2xl p-4">
+                <span className="text-[8px] text-slate-450 uppercase font-bold tracking-wider block">Weight Change</span>
+                <span className={`font-outfit text-lg font-black mt-1 block ${weightChange < 0 ? "text-brand-green" : "text-rose-500"}`}>
+                  {weightChange <= 0 ? "" : "+"}{weightChange.toFixed(1)} kg
+                </span>
+              </div>
+              <div className="bg-[#111A35]/60 border border-white/5 rounded-2xl p-4">
+                <span className="text-[8px] text-slate-450 uppercase font-bold tracking-wider block">Target Weight</span>
+                <span className="font-outfit text-lg font-black text-white mt-1 block">
+                  {profile?.target_weight ? `${profile.target_weight} kg` : "N/A"}
+                </span>
+              </div>
+              <div className="bg-[#111A35]/60 border border-white/5 rounded-2xl p-4">
+                <span className="text-[8px] text-slate-450 uppercase font-bold tracking-wider block">Activity Level</span>
+                <span className="font-outfit text-xs font-black text-brand-sky mt-1.5 block uppercase truncate">
+                  {profile?.activity_level || "Active"}
+                </span>
+              </div>
+            </div>
+
+            {/* SVG Weight Chart Area */}
+            <div className="bg-[#111A35]/40 border border-white/5 rounded-3xl p-5 space-y-4">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Body Weight Trend (7-Day Log)</span>
+              
+              {weightLogs && weightLogs.length > 1 ? (() => {
+                const weightLogsForChart = weightLogs.slice().reverse().slice(-7);
+                const weights = weightLogsForChart.map(wl => Number(wl.weight));
+                const minW = Math.min(...weights) - 1;
+                const maxW = Math.max(...weights) + 1;
+                const range = maxW - minW || 1;
+                const points = weightLogsForChart.map((wl, idx) => {
+                  const x = 40 + (idx / (weightLogsForChart.length - 1 || 1)) * 600;
+                  const y = 160 - ((Number(wl.weight) - minW) / range) * 120;
+                  return `${x},${y}`;
+                }).join(" ");
+                return (
+                  <svg className="w-full h-44" viewBox="0 0 680 180">
+                    <defs>
+                      <linearGradient id="weightGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#0EA5E9" stopOpacity="0.2" />
+                        <stop offset="100%" stopColor="#0EA5E9" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    {/* Grid lines */}
+                    <line x1="40" y1="40" x2="640" y2="40" stroke="rgba(255,255,255,0.05)" strokeDasharray="3,3" />
+                    <line x1="40" y1="100" x2="640" y2="100" stroke="rgba(255,255,255,0.05)" strokeDasharray="3,3" />
+                    <line x1="40" y1="160" x2="640" y2="160" stroke="rgba(255,255,255,0.1)" />
+                    {/* Weight points fill */}
+                    <polygon
+                      points={`40,160 ${points} 640,160`}
+                      fill="url(#weightGrad)"
+                    />
+                    {/* Weight line */}
+                    <polyline
+                      fill="none"
+                      stroke="#0EA5E9"
+                      strokeWidth="2.5"
+                      points={points}
+                    />
+                    {/* Data dots */}
+                    {weightLogsForChart.map((wl, idx) => {
+                      const x = 40 + (idx / (weightLogsForChart.length - 1 || 1)) * 600;
+                      const y = 160 - ((Number(wl.weight) - minW) / range) * 120;
+                      return (
+                        <g key={idx}>
+                          <circle cx={x} cy={y} r="4" fill="#0B1329" stroke="#0EA5E9" strokeWidth="2" />
+                          <text x={x} y={y - 8} fill="#ffffff" fontSize="9" fontWeight="bold" textAnchor="middle">
+                            {Number(wl.weight).toFixed(1)}
+                          </text>
+                          <text x={x} y="174" fill="#64748b" fontSize="8" textAnchor="middle">
+                            {new Date(wl.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                );
+              })() : (
+                <div className="h-44 flex items-center justify-center border border-dashed border-white/5 rounded-2xl text-xs text-slate-500 italic">
+                  Not enough weight data logged to display graph.
+                </div>
+              )}
+            </div>
+
+            {/* Prediction Model Box */}
+            <div className="bg-[#111A35]/60 border border-white/5 rounded-[24px] p-6 space-y-4">
+              <span className="text-[10px] text-brand-green font-bold uppercase tracking-widest block">Metabolic Prediction Forecast</span>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <span className="text-[8px] text-slate-450 uppercase font-bold block">30-Day Estimated Weight</span>
+                  <span className="font-outfit text-3xl font-black text-white">
+                    {predictedWeight30Days ? `${predictedWeight30Days.toFixed(1)} kg` : "N/A"}
+                  </span>
+                  <span className={`inline-block text-[10px] font-bold py-0.5 px-2 rounded ${
+                    predictedWeightChange < 0 ? "bg-brand-green/10 text-brand-green" : predictedWeightChange > 0 ? "bg-rose-500/10 text-rose-500" : "bg-slate-500/10 text-slate-500"
+                  }`}>
+                    {predictedWeightChange > 0 ? `+${predictedWeightChange.toFixed(1)}` : predictedWeightChange.toFixed(1)} kg predicted change
+                  </span>
+                </div>
+                <div className="text-xs text-slate-400 leading-relaxed flex items-center">
+                  Predictive calculations match the thermodynamic metabolic model, where an cumulative 7,700 kcal deficit translates to 1 kg fat reduction. Forecast is calibrated at "{confidenceLevel}" confidence based on tracking frequency.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex justify-between items-center text-[8px] text-slate-500 border-t border-white/5 pt-4">
+            <span>AI CALORIE TRACKER &bull; METABOLIC FORECASTS</span>
+            <span>PAGE 2</span>
+          </div>
         </div>
 
-        <div className="text-center text-[10px] text-slate-500 pt-4 border-t border-slate-800">
-          Generated automatically by AI Calorie Tracker Premium Platform. All calculations match biochemical models.
+        {/* PAGE 3: NUTRITION & INSIGHTS */}
+        <div id="pdf-page-3" style={{ width: "794px", height: "1123px", padding: "80px 60px", boxSizing: "border-box" }} className="bg-[#0B1329] flex flex-col justify-between relative overflow-hidden">
+          <div className="space-y-8">
+            {/* Header */}
+            <div className="flex justify-between items-center border-b border-white/10 pb-4">
+              <span className="text-[9px] text-slate-400 uppercase font-bold tracking-widest">Section 02</span>
+              <span className="font-outfit text-xs font-bold text-slate-400">MACRONUTRIENT AUDIT & AI INSIGHTS</span>
+            </div>
+
+            {/* Nutrients average vs target */}
+            <div className="bg-[#111A35]/60 border border-white/5 rounded-3xl p-5 space-y-4">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Macro Targets & Weekly Averages</span>
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="border-b border-white/10 text-slate-450 pb-2">
+                    <th className="pb-2">Nutrient</th>
+                    <th className="pb-2">Average Consumed</th>
+                    <th className="pb-2">Daily Goal Target</th>
+                    <th className="pb-2">Percentage Met</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-white/5">
+                    <td className="py-3 font-semibold flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-brand-green" /> Calories</td>
+                    <td className="py-3 font-bold text-brand-green">{avgCal} kcal</td>
+                    <td className="py-3 text-slate-350">{userGoals.calories} kcal</td>
+                    <td className="py-3 font-black">{userGoals.calories > 0 ? Math.round((avgCal / userGoals.calories) * 100) : 0}%</td>
+                  </tr>
+                  <tr className="border-b border-white/5">
+                    <td className="py-3 font-semibold flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-brand-green" /> Protein</td>
+                    <td className="py-3 font-bold text-slate-200">{avgProt}g</td>
+                    <td className="py-3 text-slate-350">{userGoals.protein}g</td>
+                    <td className="py-3 font-black">{userGoals.protein > 0 ? Math.round((avgProt / userGoals.protein) * 100) : 0}%</td>
+                  </tr>
+                  <tr className="border-b border-white/5">
+                    <td className="py-3 font-semibold flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-brand-sky" /> Carbohydrates</td>
+                    <td className="py-3 font-bold text-slate-200">{avgCarb}g</td>
+                    <td className="py-3 text-slate-350">{userGoals.carbs}g</td>
+                    <td className="py-3 font-black">{userGoals.carbs > 0 ? Math.round((avgCarb / userGoals.carbs) * 100) : 0}%</td>
+                  </tr>
+                  <tr className="border-b border-white/5">
+                    <td className="py-3 font-semibold flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-[#F43F5E]" /> Fat</td>
+                    <td className="py-3 font-bold text-slate-200">{avgFat}g</td>
+                    <td className="py-3 text-slate-350">{userGoals.fat}g</td>
+                    <td className="py-3 font-black">{userGoals.fat > 0 ? Math.round((avgFat / userGoals.fat) * 100) : 0}%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Macro Distribution visual bar */}
+            <div className="bg-[#111A35]/40 border border-white/5 rounded-2xl p-5 space-y-3">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Nutritional Ratio Distribution</span>
+              
+              {/* Stacked Horizontal Bar */}
+              <div className="w-full h-6 rounded-lg bg-slate-900 overflow-hidden flex">
+                <div style={{ width: `${totalMacroGram > 0 ? (avgProt / totalMacroGram) * 100 : 33}%` }} className="bg-brand-green h-full" title="Protein" />
+                <div style={{ width: `${totalMacroGram > 0 ? (avgCarb / totalMacroGram) * 100 : 33}%` }} className="bg-brand-sky h-full" title="Carbs" />
+                <div style={{ width: `${totalMacroGram > 0 ? (avgFat / totalMacroGram) * 100 : 34}%` }} className="bg-[#F43F5E] h-full" title="Fat" />
+              </div>
+              
+              <div className="flex justify-between text-[10px] font-bold">
+                <span className="text-brand-green">Protein: {totalMacroGram > 0 ? Math.round((avgProt / totalMacroGram) * 100) : 33}%</span>
+                <span className="text-brand-sky">Carbs: {totalMacroGram > 0 ? Math.round((avgCarb / totalMacroGram) * 100) : 33}%</span>
+                <span className="text-[#F43F5E]">Fat: {totalMacroGram > 0 ? Math.round((avgFat / totalMacroGram) * 100) : 34}%</span>
+              </div>
+            </div>
+
+            {/* AI Coach Insights block */}
+            <div className="bg-[#111A35]/60 border border-brand-green/20 rounded-[24px] p-6 space-y-3 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-brand-green/5 rounded-full blur-2xl pointer-events-none" />
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-brand-green" />
+                <span className="text-[10px] text-brand-green font-bold uppercase tracking-widest">AI Coach Core Recommendations</span>
+              </div>
+              <p className="text-xs text-slate-200 leading-relaxed font-semibold italic">
+                {avgProt < userGoals.protein 
+                  ? `"Your weekly protein average is exactly ${userGoals.protein - avgProt}g short of your daily goal. I strongly advise supplementing your dinner menu with clean protein sources (e.g. 150g chicken breast or 200g Greek yogurt) to preserve muscle mass during metabolic shifts. Your logging rate is ${consistencyRate}%, which is excellent. Keep logging daily to increase forecast accuracy."`
+                  : `"Fantastic job! Your weekly protein average of ${avgProt}g successfully satisfies your daily target of ${userGoals.protein}g. Deficits calculated show consistent metabolic energy rates. Maintain this tracking rate of ${consistencyRate}% to lock in your streaks."`}
+              </p>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex justify-between items-center text-[8px] text-slate-500 border-t border-white/5 pt-4">
+            <span>AI CALORIE TRACKER &bull; MACRONUTRIENT AUDITS</span>
+            <span>PAGE 3</span>
+          </div>
         </div>
       </div>
 

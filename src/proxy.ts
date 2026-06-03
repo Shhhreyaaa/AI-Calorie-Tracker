@@ -34,12 +34,18 @@ export async function proxy(request: NextRequest) {
 
   const privateRoutes = [
     "/dashboard", 
+    "/home", 
     "/camera", 
-    "/analysis", 
+    "/scan", 
+    "/coach", 
     "/diary", 
     "/analytics", 
+    "/stats", 
     "/streaks", 
-    "/settings"
+    "/settings",
+    "/analysis",
+    "/history",
+    "/transformation"
   ];
   
   const isPrivateRoute = privateRoutes.some((route) => 
@@ -47,7 +53,7 @@ export async function proxy(request: NextRequest) {
   );
 
   // 1. Redirect unauthenticated users to /login if trying to access private routes
-  if (!user && (isPrivateRoute || request.nextUrl.pathname === "/")) {
+  if (!user && isPrivateRoute) {
     if (request.method === "GET") {
       const url = request.nextUrl.clone();
       url.pathname = "/login";

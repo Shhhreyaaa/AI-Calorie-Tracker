@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
   PlusCircle, 
   Clock, 
@@ -18,13 +18,15 @@ import {
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { deleteMealLog, updateMealLog } from "@/app/meals/actions";
+import { useApp } from "@/lib/context/AppContext";
+import Link from "next/link";
 
 export default function DiaryPage() {
-  const [loading, setLoading] = useState(true);
-  const [meals, setMeals] = useState<any[]>([]);
+  const { meals: allMeals, loading: contextLoading, refreshAll } = useApp();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingMeal, setEditingMeal] = useState<any | null>(null);
   const [formattedDate, setFormattedDate] = useState("");
+  const [updating, setUpdating] = useState(false);
 
   // Editing form states
   const [editName, setEditName] = useState("");
@@ -34,34 +36,30 @@ export default function DiaryPage() {
   const [editCarbs, setEditCarbs] = useState(0);
   const [editFat, setEditFat] = useState(0);
 
-  const fetchMeals = async () => {
-    try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const { data } = await supabase
-        .from("meals")
-        .select("*")
-        .eq("user_id", user.id)
-        .gte("logged_at", today.toISOString())
-        .order("logged_at", { ascending: true });
-
-      if (data) {
-        setMeals(data);
+  // Derive local today's meals from context cache
+  const meals = useMemo(() => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const getLocalDateStr = (date: Date) => {
+      try {
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: tz,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit"
+        }).formatToParts(date);
+        const year = parts.find(p => p.type === "year")?.value;
+        const month = parts.find(p => p.type === "month")?.value;
+        const day = parts.find(p => p.type === "day")?.value;
+        return `${year}-${month}-${day}`;
+      } catch (e) {
+        return date.toISOString().split("T")[0];
       }
-    } catch (err) {
-      console.error("Diary load error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+    const todayStr = getLocalDateStr(new Date());
+    return allMeals.filter(m => getLocalDateStr(new Date(m.logged_at)) === todayStr);
+  }, [allMeals]);
 
   useEffect(() => {
-    fetchMeals();
     setFormattedDate(new Date().toLocaleDateString("en-US", {
       month: "long",
       day: "numeric",
@@ -71,13 +69,13 @@ export default function DiaryPage() {
 
   const handleDelete = async (id: string) => {
     try {
-      setLoading(true);
+      setUpdating(true);
       await deleteMealLog(id);
-      await fetchMeals();
+      await refreshAll();
     } catch (err) {
       alert("Failed to delete log.");
     } finally {
-      setLoading(false);
+      setUpdating(false);
     }
   };
 
@@ -97,7 +95,7 @@ export default function DiaryPage() {
     if (!editingMeal) return;
 
     try {
-      setLoading(true);
+      setUpdating(true);
       await updateMealLog(editingMeal.id, {
         food_name: editName,
         meal_type: editType,
@@ -108,13 +106,15 @@ export default function DiaryPage() {
       });
       setIsEditModalOpen(false);
       setEditingMeal(null);
-      await fetchMeals();
+      await refreshAll();
     } catch (err) {
       alert("Failed to update meal log.");
     } finally {
-      setLoading(false);
+      setUpdating(false);
     }
   };
+
+  const loading = contextLoading || updating;
 
   // Grouping helpers
   const getMealsByCategory = (category: string) => {
@@ -266,7 +266,15 @@ export default function DiaryPage() {
       <div className="flex justify-between items-center">
         <div>
           <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Food Diary</span>
-          <h2 className="font-outfit text-2xl font-bold tracking-tight text-white">Timeline Logs</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-outfit text-2xl font-bold tracking-tight text-white">Timeline Logs</h2>
+            <Link 
+              href="/history" 
+              className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5 px-2.5 py-1 rounded-full font-bold transition-all ml-2"
+            >
+              History &rarr;
+            </Link>
+          </div>
         </div>
         <div className="flex items-center gap-1.5 bg-slate-900/60 border border-white/5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-300 shadow-sm">
           <Calendar className="w-3.5 h-3.5 text-brand-green" />

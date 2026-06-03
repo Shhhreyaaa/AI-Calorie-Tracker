@@ -13,13 +13,20 @@ import {
   Settings 
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useApp } from "@/lib/context/AppContext";
 
 export default function BottomNavigation() {
   const pathname = usePathname();
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const { user } = useApp();
+
+  // Hide navigation if user is logged out
+  if (!user) {
+    return null;
+  }
 
   // Hide navigation on auth pages
-  const hideNavRoutes = ["/login", "/signup"];
+  const hideNavRoutes = ["/login", "/signup", "/onboarding"];
   if (hideNavRoutes.includes(pathname)) {
     return null;
   }
@@ -95,6 +102,7 @@ export default function BottomNavigation() {
 
               <Link 
                 href={item.path}
+                prefetch={true}
                 className="w-full h-full flex flex-col items-center justify-center cursor-pointer select-none"
               >
                 <motion.div

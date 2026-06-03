@@ -8,6 +8,7 @@ import { getAndUpdateActiveStreak } from "@/app/meals/actions";
 export interface AppContextType {
   user: any;
   profile: any;
+  goals: any;
   streak: any;
   meals: any[];
   weightLogs: any[];
@@ -82,6 +83,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     enabled: !!user?.id
   });
+ 
+  // 2.5. Fetch Goals
+  const { data: goals, isLoading: isGoalsLoading, refetch: refetchGoals } = useQuery({
+    queryKey: ["goals", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data } = await supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle();
+      if (!data) {
+        return {
+          id: user.id,
+          user_id: user.id,
+          calorie_target: 2000,
+          protein_target: 150,
+          carb_target: 200,
+          fat_target: 65,
+          calories: 2000,
+          protein: 150,
+          carbs: 200,
+          fat: 65
+        };
+      }
+      return data;
+    },
+    enabled: !!user?.id
+  });
 
   // 3. Fetch Streaks
   const { data: streak, isLoading: isStreakLoading, refetch: refetchStreak } = useQuery({
@@ -129,17 +155,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     enabled: !!user?.id
   });
 
-  const loading = !user ? false : (isProfileLoading || isStreakLoading || isMealsLoading || isWeightLogsLoading);
-
+  const loading = !user ? false : (isProfileLoading || isStreakLoading || isMealsLoading || isWeightLogsLoading || isGoalsLoading);
+ 
   const refreshAll = useCallback(async () => {
     if (!user?.id) return;
     await Promise.all([
       refetchProfile(),
+      refetchGoals(),
       refetchStreak(),
       refetchMeals(),
       refetchWeightLogs()
     ]);
-  }, [user?.id, refetchProfile, refetchStreak, refetchMeals, refetchWeightLogs]);
+  }, [user?.id, refetchProfile, refetchGoals, refetchStreak, refetchMeals, refetchWeightLogs]);
 
   // Optimistic Mutations updating the query cache instantly
   const optimisticAddMeal = useCallback((mealPayload: any) => {
@@ -208,6 +235,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(() => ({
     user,
     profile,
+    goals,
     streak,
     meals: meals || [],
     weightLogs: weightLogs || [],
@@ -220,6 +248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [
     user,
     profile,
+    goals,
     streak,
     meals,
     weightLogs,

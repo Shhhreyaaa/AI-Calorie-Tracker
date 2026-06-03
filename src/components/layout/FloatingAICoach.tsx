@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
+import { useApp } from "@/lib/context/AppContext";
 
 interface Message {
   role: "user" | "assistant";
@@ -23,6 +24,7 @@ interface Message {
 }
 
 export default function FloatingAICoach() {
+  const { user } = useApp();
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
@@ -137,6 +139,10 @@ export default function FloatingAICoach() {
     }
     handleSendMessage(prompt);
   };
+
+  if (!user) {
+    return null;
+  }
 
   const hideRoutes = ["/login", "/signup", "/onboarding"];
   if (hideRoutes.includes(pathname)) {

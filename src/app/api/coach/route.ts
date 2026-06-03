@@ -180,9 +180,6 @@ Instruction Guidelines:
 
     // 8. Call Gemini client with fallback models and retry logic
     const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"];
-    let responseText = "";
-    let lastError: any = null;
-    let modelUsed = "";
     const maxRetries = 3;
 
     // Query the database to get the actual history including the message we just inserted
@@ -210,142 +207,117 @@ Instruction Guidelines:
       ? chatHistory.slice(0, -1) 
       : [];
 
-    if (genAI) {
-      for (const modelName of modelsToTry) {
-        let attempt = 0;
-        let shouldFallback = false;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let streamStarted = false;
+        let fullResponseText = "";
+        let modelUsed = "";
 
-        while (attempt < maxRetries) {
-          attempt++;
-          try {
-            console.log("-----------------------------------------");
-            console.log(`[Coach Gemini Request] Model: ${modelName} | Attempt: ${attempt}/${maxRetries}`);
-            
-            const model = genAI.getGenerativeModel({
-              model: modelName,
-              systemInstruction: systemPrompt,
-            });
+        try {
+          if (genAI) {
+            for (const modelName of modelsToTry) {
+              if (streamStarted) break;
+              let attempt = 0;
 
-            const chat = model.startChat({
-              history: historicalMessages,
-            });
+              while (attempt < maxRetries) {
+                attempt++;
+                try {
+                  console.log("-----------------------------------------");
+                  console.log(`[Coach Gemini Stream Request] Model: ${modelName} | Attempt: ${attempt}/${maxRetries}`);
+                  
+                  const model = genAI.getGenerativeModel({
+                    model: modelName,
+                    systemInstruction: systemPrompt,
+                  });
 
-            console.log(`=== BEFORE COACH GEMINI API CALL for model ${modelName} (Attempt ${attempt}) ===`);
-            const result = await chat.sendMessage(latestMessage.parts[0].text);
-            console.log(`=== AFTER COACH GEMINI API CALL for model ${modelName} (Attempt ${attempt}) ===`);
-            
-            responseText = result.response.text();
-            if (responseText) {
-              modelUsed = modelName;
-              console.log(`[Coach Gemini Success] Model: ${modelName} | Status: 200 OK`);
-              break; // Break the retry loop
-            }
-          } catch (err: any) {
-            console.log(`=== AFTER COACH GEMINI API CALL (FAILED) for model ${modelName} (Attempt ${attempt}) ===`);
-            console.error(`Coach Model ${modelName} failed on attempt ${attempt}.`);
-            console.error(`[Coach Gemini Error] Message:`, err.message || err);
-            
-            lastError = err;
+                  const chat = model.startChat({
+                    history: historicalMessages,
+                  });
 
-            // Extract HTTP status code from the error
-            const statusMatch = err.message ? err.message.match(/\[(\d+)\]/) : null;
-            const status = err.status || err.statusCode || (statusMatch ? parseInt(statusMatch[1], 10) : null);
-            console.error(`[Coach Gemini Error Details] Extracted Status: ${status}`);
-
-            // Retryable status codes: 429, 500, 502, 503, 504. Fall back to next model if they fail after maxRetries.
-            const isFallbackEligible = !status || [429, 500, 502, 503, 504].includes(status);
-
-            if (!isFallbackEligible) {
-              console.log(`[Coach Gemini Error] Non-retryable status ${status}. Aborting fallback chain.`);
-              shouldFallback = false;
-              break;
-            }
-
-            shouldFallback = true;
-
-            if (attempt < maxRetries) {
-              const backoffMs = Math.pow(2, attempt - 1) * 1000;
-              console.log(`[Coach Gemini Retry] Waiting ${backoffMs}ms before attempt ${attempt + 1}...`);
-              await new Promise((resolve) => setTimeout(resolve, backoffMs));
-            } else {
-              console.log(`[Coach Gemini Fallback] Max retries reached for ${modelName}.`);
-              break;
+                  const resultStream = await chat.sendMessageStream(latestMessage.parts[0].text);
+                  
+                  for await (const chunk of resultStream.stream) {
+                    const text = chunk.text();
+                    if (text) {
+                      fullResponseText += text;
+                      controller.enqueue(encoder.encode(text));
+                      streamStarted = true;
+                    }
+                  }
+                  
+                  modelUsed = modelName;
+                  break; // Succeeded! Break the retry loop
+                } catch (err: any) {
+                  console.error(`[Coach Gemini Stream Error] Model ${modelName} failed on attempt ${attempt}:`, err.message || err);
+                  if (streamStarted) {
+                    // Already streamed some content to client, cannot fall back or retry safely.
+                    break;
+                  }
+                  if (attempt < maxRetries) {
+                    const backoffMs = Math.pow(2, attempt - 1) * 1000;
+                    await new Promise((resolve) => setTimeout(resolve, backoffMs));
+                  }
+                }
+              }
             }
           }
+        } catch (streamErr) {
+          console.error("Stream reader loop error:", streamErr);
         }
 
-        if (responseText) {
-          break; // Succeeded! Break the fallback loop.
-        }
-
-        if (!shouldFallback) {
-          break;
-        }
-
-        const nextIndex = modelsToTry.indexOf(modelName) + 1;
-        if (nextIndex < modelsToTry.length) {
-          console.log(`[Coach Gemini Fallback] Selected next fallback model: ${modelsToTry[nextIndex]}`);
-        }
-      }
-    }
-
-    if (!responseText) {
-      const errorMessage = lastError?.message || "All models failed or returned empty responses.";
-      console.error("Coach Gemini Analysis Pipeline Error:", errorMessage);
-      
-      const fallbackReply = `Hello! It looks like my AI engine is currently busy or out of quota. However, looking at your current logs:
+        // Fallback offline response if no stream ever outputted text
+        if (!fullResponseText) {
+          const fallbackReply = `Hello! It looks like my AI engine is currently busy or out of quota. However, looking at your current logs:
 - Consumed: ${consumedCalories} kcal / Target: ${targetCalories} kcal
 - Protein: ${consumedProtein}g / Target: ${targetProtein}g
 - Carbs: ${consumedCarbs}g / Target: ${targetCarbs}g
 - Fat: ${consumedFat}g / Target: ${targetFat}g
 
 Based on this, ${
-        remainingProtein > 20 
-          ? `I suggest focusing on protein for your next meal (you need ${remainingProtein}g more). Try adding some chicken breast, turkey, eggs, fish, paneer, or Greek yogurt to hit your target.` 
-          : `your protein is looking good today! Keep up the healthy choices.`
-      } Let me know if you have any questions or when my server is back online!`;
+            remainingProtein > 20 
+              ? `I suggest focusing on protein for your next meal (you need ${remainingProtein}g more). Try adding some chicken breast, turkey, eggs, fish, paneer, or Greek yogurt to hit your target.` 
+              : `your protein is looking good today! Keep up the healthy choices.`
+          } Let me know if you have any questions or when my server is back online!`;
 
-      // Save the fallback assistant message to the database
-      const { error: dbAssistantInsertErr } = await supabase
-        .from("coach_messages")
-        .insert({
-          user_id: user.id,
-          role: "assistant",
-          message: fallbackReply
-        });
-      if (dbAssistantInsertErr) {
-        console.error("Failed to insert assistant message to DB:", dbAssistantInsertErr);
+          fullResponseText = fallbackReply;
+          controller.enqueue(encoder.encode(fallbackReply));
+          modelUsed = "offline-fallback";
+        }
+
+        // Save final compiled reply to the database
+        try {
+          const { error: dbAssistantInsertErr } = await supabase
+            .from("coach_messages")
+            .insert({
+              user_id: user.id,
+              role: "assistant",
+              message: fullResponseText
+            });
+          if (dbAssistantInsertErr) {
+            console.error("Failed to insert assistant message to DB from stream:", dbAssistantInsertErr);
+          }
+        } catch (dbErr) {
+          console.error("Database save exception from stream:", dbErr);
+        }
+
+        controller.close();
       }
+    });
 
-      return NextResponse.json({
-        success: true,
-        modelUsed: "offline-fallback",
-        reply: fallbackReply,
-      });
-    }
-
-    // Save the AI's reply to the database
-    const { error: dbAssistantInsertErr } = await supabase
-      .from("coach_messages")
-      .insert({
-        user_id: user.id,
-        role: "assistant",
-        message: responseText
-      });
-    if (dbAssistantInsertErr) {
-      console.error("Failed to insert assistant message to DB:", dbAssistantInsertErr);
-    }
-
-    return NextResponse.json({
-      success: true,
-      modelUsed: modelUsed,
-      reply: responseText,
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive",
+      },
     });
 
   } catch (error: any) {
     console.error("AI Coach API Route Error:", error);
     return NextResponse.json(
-      { success: false, error: "AI service is temporarily busy. Please try again in a few moments." }
+      { success: false, error: "AI service is temporarily busy. Please try again in a few moments." },
+      { status: 500 }
     );
   }
 }

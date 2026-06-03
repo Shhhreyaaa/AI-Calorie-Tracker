@@ -1,5 +1,5 @@
 "use client";
-
+ 
 import React, { useState, useRef, useEffect } from "react";
 import { 
   Camera, 
@@ -8,12 +8,12 @@ import {
   UploadCloud, 
   X, 
   Trash2, 
-  RotateCw,
-  Loader2,
-  AlertCircle
+  Loader2, 
+  AlertCircle,
+  RefreshCw
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-
+ 
 // Local database of common foods for fallback estimation
 const LOCAL_DATABASE: { 
   [key: string]: { 
@@ -114,7 +114,7 @@ const LOCAL_DATABASE: {
     ingredients: ["Lentils", "Spices", "Oil"]
   }
 };
-
+ 
 function getLocalEstimate(filename: string) {
   const normalized = filename.toLowerCase();
   if (normalized.includes("idli")) return LOCAL_DATABASE.idli;
@@ -139,21 +139,22 @@ function getLocalEstimate(filename: string) {
     ingredients: ["Rice", "Vegetables", "Spices"]
   };
 }
-
+ 
 export default function CameraPage() {
   const router = useRouter();
-
+ 
   // State management
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFilename, setImageFilename] = useState<string>("");
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("environment");
   const [isLoading, setIsLoading] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState<string>("");
   const [originalSize, setOriginalSize] = useState<number | null>(null);
   const [compressedSize, setCompressedSize] = useState<number | null>(null);
-
+ 
   // Compress image on the client side before uploading
   const compressImage = (
     dataUrl: string,
@@ -193,12 +194,38 @@ export default function CameraPage() {
       img.src = dataUrl;
     });
   };
-
-  // References for WebRTC camera stream
+ 
+  // Recursively compress image under 1MB target
+  const compressImageUnderLimit = async (
+    dataUrl: string
+  ): Promise<{ compressedDataUrl: string; compressedSize: number }> => {
+    let maxDim = 1200;
+    let quality = 0.85;
+    let attempts = 0;
+    
+    while (attempts < 5) {
+      attempts++;
+      const { compressedDataUrl, compressedSize } = await compressImage(dataUrl, maxDim, quality);
+      if (compressedSize < 1000000) {
+        return { compressedDataUrl, compressedSize };
+      }
+      maxDim = Math.round(maxDim * 0.8);
+      quality = Math.max(quality - 0.15, 0.45);
+    }
+    
+    // Final desperate compression attempt
+    const { compressedDataUrl, compressedSize } = await compressImage(dataUrl, 600, 0.35);
+    if (compressedSize >= 1048576) {
+      throw new Error("Image is too large. Even after optimization, it exceeds the 1MB size limit. Please upload a smaller image.");
+    }
+    return { compressedDataUrl, compressedSize };
+  };
+ 
+  // References for WebRTC camera stream (as fallback)
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
-
+ 
   // Clean up camera stream on unmount
   useEffect(() => {
     return () => {
@@ -208,28 +235,86 @@ export default function CameraPage() {
     };
   }, [stream]);
 
-  // Start Device Camera
-  const startCamera = async () => {
+  // Bind camera stream to video element when active and mounted
+  useEffect(() => {
+    if (isCameraActive && stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(err => {
+        console.error("Error starting video playback:", err);
+      });
+    }
+  }, [isCameraActive, stream]);
+ 
+  // Start Device Camera (WebRTC)
+  const startCamera = async (mode = facingMode) => {
     setIsCameraActive(true);
     setImagePreview(null);
     setImageFilename("");
     setErrorMsg(null);
+
+    // 1. Check if navigator.mediaDevices and getUserMedia are supported
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setErrorMsg("Camera not supported: Browser does not support MediaDevices API.");
+      setIsCameraActive(false);
+      openNativeCamera();
+      return;
+    }
+
     try {
+      // Stop current stream if active to prevent locks
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        setStream(null);
+      }
+
+      // 2. Request camera with selected facingMode
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }, // Prioritize back camera on phones
+        video: { 
+          facingMode: mode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
         audio: false
       });
       setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Camera access error:", err);
-      alert("Unable to access camera. Please check browser permissions.");
+      
+      // 3. Set user-friendly error messages based on error type
+      let message = "Camera unavailable.";
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        message = "Camera permission denied. Please allow camera access in your browser settings.";
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        message = "Camera not found or unavailable. Please ensure your camera is connected.";
+      } else if (err.name === "NotSupportedError" || err.name === "ConstraintNotSatisfiedError") {
+        message = "Camera not supported by browser constraints.";
+      }
+      
+      setErrorMsg(message);
       setIsCameraActive(false);
+      
+      // 4. Fallback: trigger native image picker
+      openNativeCamera();
     }
   };
 
+  const toggleFacingMode = () => {
+    const newMode = facingMode === "user" ? "environment" : "user";
+    setFacingMode(newMode);
+    if (isCameraActive) {
+      startCamera(newMode);
+    }
+  };
+ 
+  // Trigger Native Mobile Camera directly with rear orientation
+  const openNativeCamera = () => {
+    const input = document.getElementById("native-camera-input");
+    if (input) {
+      (input as HTMLInputElement).value = "";
+      input.click();
+    }
+  };
+ 
   // Stop Device Camera
   const stopCamera = () => {
     if (stream) {
@@ -238,7 +323,7 @@ export default function CameraPage() {
     }
     setIsCameraActive(false);
   };
-
+ 
   // Capture Snapshot from Camera Stream
   const capturePhoto = async () => {
     if (videoRef.current && canvasRef.current) {
@@ -246,26 +331,37 @@ export default function CameraPage() {
       const canvas = canvasRef.current;
       const context = canvas.getContext("2d");
       
-      if (context) {
-        // Set canvas boundaries to match video stream
+      if (video.readyState < 2) {
+        console.warn("Video metadata/frame not ready yet.");
+        return;
+      }
+
+      if (context && video.videoWidth > 0 && video.videoHeight > 0) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-        // Draw frame onto canvas
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        // Save as base64 data URI
         const dataUrl = canvas.toDataURL("image/png");
         const rawSize = Math.round((dataUrl.length * 3) / 4);
         setOriginalSize(rawSize);
-
-        const { compressedDataUrl, compressedSize: compSize } = await compressImage(dataUrl, 1024, 0.75);
-        setImagePreview(compressedDataUrl);
-        setCompressedSize(compSize);
-        setImageFilename("captured_plate.jpg");
-        stopCamera();
+        setIsLoading(true);
+        setLoadingStatus("Optimizing captured photo...");
+ 
+        try {
+          const { compressedDataUrl, compressedSize: compSize } = await compressImageUnderLimit(dataUrl);
+          setImagePreview(compressedDataUrl);
+          setCompressedSize(compSize);
+          setImageFilename("captured_plate.jpg");
+          setErrorMsg(null);
+        } catch (compErr: any) {
+          setErrorMsg(compErr.message);
+        } finally {
+          setIsLoading(false);
+          stopCamera();
+        }
       }
     }
   };
-
+ 
   // Handle Drag Events for File Upload
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -276,26 +372,68 @@ export default function CameraPage() {
       setIsDragActive(false);
     }
   };
-
-  // Process File Select
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setImageFilename(file.name);
-      setOriginalSize(file.size);
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const rawDataUrl = reader.result as string;
-        const { compressedDataUrl, compressedSize: compSize } = await compressImage(rawDataUrl, 1024, 0.75);
+ 
+  // Process the selected image file, supporting HEIC and iterative compression
+  const handleFileProcess = async (file: File) => {
+    setErrorMsg(null);
+    setIsLoading(true);
+    
+    // HEIC Check
+    const isHeic = file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif") || file.type === "image/heic";
+    
+    if (isHeic) {
+      setLoadingStatus("Converting HEIC format to JPEG...");
+      try {
+        const heic2anyModule = await import("heic2any");
+        const heic2any = heic2anyModule.default || heic2anyModule;
+        const convertedBlob = await heic2any({
+          blob: file,
+          toType: "image/jpeg",
+          quality: 0.8
+        });
+        const blobToProcess = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+        const convertedFile = new File([blobToProcess], file.name.replace(/\.[^/.]+$/, "") + ".jpg", {
+          type: "image/jpeg"
+        });
+        file = convertedFile;
+      } catch (heicErr: any) {
+        console.error("HEIC conversion error:", heicErr);
+        setErrorMsg("Failed to convert HEIC format. Please select a standard JPEG/PNG image.");
+        setIsLoading(false);
+        return;
+      }
+    }
+ 
+    setImageFilename(file.name);
+    setOriginalSize(file.size);
+    setLoadingStatus("Optimizing image size...");
+ 
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const rawDataUrl = reader.result as string;
+      try {
+        const { compressedDataUrl, compressedSize: compSize } = await compressImageUnderLimit(rawDataUrl);
         setImagePreview(compressedDataUrl);
         setCompressedSize(compSize);
         setIsCameraActive(false);
         setErrorMsg(null);
-      };
-      reader.readAsDataURL(file);
+      } catch (compErr: any) {
+        setErrorMsg(compErr.message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+ 
+  // Process File Select
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileProcess(file);
     }
   };
-
+ 
   // Process File Drop
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -304,21 +442,10 @@ export default function CameraPage() {
     
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      setImageFilename(file.name);
-      setOriginalSize(file.size);
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const rawDataUrl = reader.result as string;
-        const { compressedDataUrl, compressedSize: compSize } = await compressImage(rawDataUrl, 1024, 0.75);
-        setImagePreview(compressedDataUrl);
-        setCompressedSize(compSize);
-        setIsCameraActive(false);
-        setErrorMsg(null);
-      };
-      reader.readAsDataURL(file);
+      handleFileProcess(file);
     }
   };
-
+ 
   // Helper to convert Data URL (base64) to a File object
   const dataURLtoFile = (dataurl: string, filename: string): File => {
     const arr = dataurl.split(",");
@@ -331,28 +458,27 @@ export default function CameraPage() {
     }
     return new File([u8arr], filename, { type: mime });
   };
-
+ 
   // Connects uploader directly to Gemini Vision API route
   const handleAnalyze = async () => {
     if (!imagePreview) return;
     setIsLoading(true);
     setErrorMsg(null);
     setLoadingStatus("Analyzing your meal...");
-
+ 
     try {
       const file = dataURLtoFile(imagePreview, imageFilename || "meal_image.png");
       const formData = new FormData();
       formData.append("file", file);
-
+ 
       const response = await fetch("/api/analyze", {
         method: "POST",
         body: formData
       });
-
+ 
       const result = await response.json();
-
+ 
       if (response.ok && result.success) {
-        // Success, cached or live from Gemini
         sessionStorage.setItem("latest_analysis", JSON.stringify(result.data));
         sessionStorage.setItem("latest_image", imagePreview);
         if (result.modelUsed) {
@@ -361,12 +487,10 @@ export default function CameraPage() {
           sessionStorage.removeItem("latest_model_used");
         }
       } else {
-        // Failed (e.g. quota exceeded)
         throw new Error(result.error || "Failed to analyze image");
       }
     } catch (err: any) {
       console.warn("API Analysis failed, using local fallback:", err.message);
-      // Trigger local fallback for instant analysis on the report page
       const estimate = getLocalEstimate(imageFilename);
       const fallbackResult = {
         meal_name: estimate.meal_name,
@@ -387,17 +511,26 @@ export default function CameraPage() {
       sessionStorage.removeItem("latest_model_used");
     } finally {
       setIsLoading(false);
-      // Redirect instantly after handling
       router.push("/analysis");
     }
   };
-
+ 
   return (
     <div className="space-y-6">
       
       {/* Hidden canvas for image capture */}
       <canvas ref={canvasRef} className="hidden" />
-
+ 
+      {/* Hidden inputs to trigger mobile capture and files picker */}
+      <input 
+        type="file" 
+        accept="image/*" 
+        capture="environment" 
+        id="native-camera-input" 
+        className="hidden" 
+        onChange={handleFileChange} 
+      />
+ 
       {/* Header Info */}
       <div className="flex justify-between items-start">
         <div>
@@ -406,14 +539,16 @@ export default function CameraPage() {
           <p className="text-xs text-slate-400 mt-1">Upload a photo or capture your plate to estimate macros.</p>
         </div>
       </div>
-
+ 
       {/* Core Upload Canvas Workspace */}
       <div 
         onDragEnter={handleDrag}
         onDragOver={handleDrag}
         onDragLeave={handleDrag}
         onDrop={handleDrop}
-        className={`relative border-2 border-dashed rounded-[32px] overflow-hidden min-h-[340px] flex flex-col items-center justify-center transition-all bg-white dark:bg-slate-900 ${
+        className={`relative border-2 border-dashed rounded-[32px] overflow-hidden flex flex-col items-center justify-center transition-all bg-white dark:bg-slate-900 ${
+          isCameraActive || imagePreview ? "h-[450px] border-none animate-fade-in" : "min-h-[340px]"
+        } ${
           isDragActive 
             ? "border-brand-green bg-brand-green/5" 
             : "border-slate-200 dark:border-slate-800"
@@ -433,35 +568,57 @@ export default function CameraPage() {
             </p>
           </div>
         )}
-
+ 
         {/* State B: Active Camera Feed */}
         {isCameraActive && !imagePreview && (
-          <div className="absolute inset-0 z-10 bg-black flex flex-col justify-between">
+          <div className="absolute inset-0 z-10 bg-black flex flex-col justify-end items-center overflow-hidden rounded-[30px]">
+            {/* Live Video Stream */}
             <video 
               ref={videoRef} 
               autoPlay 
               playsInline 
-              className="w-full h-full object-cover flex-1"
+              className="absolute inset-0 w-full h-full object-cover z-0"
             />
-            {/* Camera actions bar */}
-            <div className="bg-black/80 backdrop-blur-md p-4 flex justify-between items-center px-8 border-t border-white/10">
+
+            {/* Gradient Overlay for controls visibility */}
+            <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/85 via-black/45 to-transparent z-10 pointer-events-none" />
+
+            {/* Camera actions overlay */}
+            <div className="absolute bottom-4 inset-x-0 z-20 flex justify-between items-center px-6">
+              
+              {/* Left action: Cancel */}
               <button 
                 onClick={stopCamera}
-                className="text-white hover:text-red-400 p-2.5 rounded-full hover:bg-white/10 transition-colors"
+                className="bg-black/60 border border-white/10 text-white hover:text-red-400 p-3 rounded-full hover:bg-black/80 transition-colors cursor-pointer"
+                title="Cancel"
               >
                 <X className="w-5 h-5" />
               </button>
+
+              {/* Center action: Capture circular shutter button */}
               <button 
                 onClick={capturePhoto}
-                className="w-16 h-16 rounded-full border-4 border-white bg-white/20 hover:bg-white/40 active:scale-95 transition-all flex items-center justify-center"
+                className="w-16 h-16 rounded-full border-4 border-white bg-white/20 hover:bg-white/40 active:scale-90 transition-all flex items-center justify-center cursor-pointer shadow-lg animate-pulse-glow"
+                title="Capture Photo"
               >
-                <div className="w-12 h-12 rounded-full bg-white" />
+                <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center">
+                  <Camera className="w-5 h-5 text-black stroke-[2.5px]" />
+                </div>
               </button>
-              <div className="w-10" /> {/* Spacer */}
+
+              {/* Right action: Switch Camera toggle (facingMode toggle for mobile) */}
+              <button 
+                onClick={toggleFacingMode}
+                className="bg-black/60 border border-white/10 text-white hover:text-brand-green p-3 rounded-full hover:bg-black/80 transition-colors cursor-pointer"
+                title="Switch Camera"
+              >
+                <RefreshCw className="w-5 h-5" />
+              </button>
+              
             </div>
           </div>
         )}
-
+ 
         {/* State C: Captured or Uploaded Image Preview */}
         {imagePreview && (
           <div className="absolute inset-0 z-10 bg-slate-50 dark:bg-slate-950 flex flex-col justify-between p-4">
@@ -472,10 +629,10 @@ export default function CameraPage() {
                 className="w-full h-full object-cover"
               />
             </div>
-
+ 
             {/* Compression Metrics Pill */}
             {originalSize && compressedSize && (
-              <div className="mt-3 flex items-center justify-between bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-4 py-2.5 text-xs font-semibold text-slate-500">
+              <div className="mt-3 flex items-center justify-between bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-4 py-2.5 text-xs font-semibold text-slate-505">
                 <div className="flex items-center gap-1">
                   <span className="text-[10px] text-slate-405 uppercase font-bold">Orig:</span>
                   <span className="text-slate-700 dark:text-slate-350">{(originalSize / 1024).toFixed(1)} KB</span>
@@ -501,28 +658,31 @@ export default function CameraPage() {
                 </div>
               </div>
             )}
-
+ 
             {/* Preview controls */}
-            <div className="flex gap-3 mt-4">
+            <div className="flex gap-3 mt-4 shrink-0">
               <button 
                 onClick={() => {
                   setImagePreview(null);
                   setErrorMsg(null);
+                  if (typeof window !== "undefined" && navigator.mediaDevices) {
+                    startCamera();
+                  }
                 }}
-                className="bg-red-500/10 text-red-500 hover:bg-red-500/20 px-4 py-3.5 rounded-xl font-semibold text-xs active:scale-95 transition-all flex items-center gap-1.5"
+                className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 px-4 py-3.5 rounded-xl font-semibold text-xs active:scale-95 transition-all flex items-center gap-1.5"
               >
-                <Trash2 className="w-4 h-4" /> Remove
+                <Trash2 className="w-4 h-4 text-red-400" /> Retake Photo
               </button>
               <button 
                 onClick={handleAnalyze}
                 className="flex-1 bg-brand-green hover:bg-emerald-600 text-white font-semibold text-xs py-3.5 px-4 rounded-xl shadow-glow active:scale-95 transition-all flex items-center justify-center gap-1.5"
               >
-                <Sparkles className="w-4 h-4 fill-white/25" /> {errorMsg ? "Retry Analysis" : "Analyze with Gemini AI"}
+                <Sparkles className="w-4 h-4 fill-white/25" /> {errorMsg ? "Retry Analysis" : "Analyze Photo"}
               </button>
             </div>
           </div>
         )}
-
+ 
         {/* State D: Default Upload / Camera Trigger Panel */}
         {!imagePreview && !isCameraActive && (
           <div className="flex flex-col items-center p-6 text-center">
@@ -533,7 +693,17 @@ export default function CameraPage() {
             <p className="text-[11px] text-slate-400 text-center max-w-[200px] mb-6">
               Drop files here, or use the selection methods below
             </p>
-
+            
+            {/* Display camera error message if any */}
+            {errorMsg && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-505 rounded-xl p-3 text-xs mb-6 flex items-start gap-2.5 max-w-xs text-left animate-fade-in">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+                <div className="flex-1 text-red-550 font-semibold leading-relaxed">
+                  {errorMsg}
+                </div>
+              </div>
+            )}
+ 
             <div className="flex flex-col gap-2.5 w-full max-w-xs px-4">
               <label className="bg-brand-green hover:bg-emerald-600 text-white font-semibold text-xs py-3 px-4 rounded-xl shadow-glow active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer">
                 <ImageIcon className="w-4 h-4" />
@@ -546,7 +716,7 @@ export default function CameraPage() {
                 />
               </label>
               <button 
-                onClick={startCamera}
+                onClick={() => startCamera()}
                 className="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-850 dark:text-slate-200 font-semibold text-xs py-3 px-4 rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
               >
                 <Camera className="w-4 h-4" />
@@ -555,9 +725,9 @@ export default function CameraPage() {
             </div>
           </div>
         )}
-
+ 
       </div>
-
+ 
     </div>
   );
 }

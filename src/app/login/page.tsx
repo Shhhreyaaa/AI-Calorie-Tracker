@@ -36,6 +36,7 @@ function LoginForm() {
         console.error("Login failed:", signInError);
         setError(signInError.message || "Invalid email or password. Please try again.");
         setLoading(false);
+      } else {
         router.push("/dashboard");
         router.refresh();
       }

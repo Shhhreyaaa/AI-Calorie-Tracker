@@ -42,7 +42,8 @@ function SignupForm() {
         console.error("Signup failed:", signUpError);
         setError(signUpError.message || "Failed to create account. Please try again.");
         setLoading(false);
-        router.push("/dashboard");
+      } else {
+        router.push("/onboarding");
         router.refresh();
       }
     } catch (err: any) {

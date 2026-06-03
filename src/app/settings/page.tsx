@@ -31,6 +31,7 @@ import {
   ChevronDown
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { useApp } from "@/lib/context/AppContext";
 
 type GoalType = "Weight Loss" | "Lean Muscle Gain" | "Maintenance" | "Body Recomposition";
 type ActivityLevel = "Sedentary" | "Lightly Active" | "Moderately Active" | "Very Active";
@@ -38,10 +39,10 @@ type MealPreference = "Vegetarian" | "Non-Vegetarian" | "Vegan";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
+  const { user, profile, goals: contextGoals, weightLogs, loading: contextLoading, refreshAll } = useApp();
+  
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [user, setUser] = useState<any>(null);
 
   // Profile Fields
   const [fullName, setFullName] = useState("Shreya Somi");
@@ -74,117 +75,77 @@ export default function SettingsPage() {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  // Load targets from Supabase on mount
+  // Sync page state when profile / goals cache changes
   useEffect(() => {
-    const loadUserSettings = async () => {
+    if (contextLoading || !profile) return;
+
+    setEmail(profile.email || "");
+
+    if (profile.created_at) {
+      const date = new Date(profile.created_at);
+      setCreatedDate(date.toLocaleDateString("en-US", { month: "long", year: "numeric" }));
+    }
+
+    if (profile.daily_calorie_target !== undefined && profile.daily_calorie_target !== null) {
+      setCalories(profile.daily_calorie_target);
+      setProtein(profile.protein_goal || 150);
+      setCarbs(profile.carbs_goal || 200);
+      setFat(profile.fat_goal || 65);
+    } else if (contextGoals) {
+      setCalories(contextGoals.calorie_target ?? contextGoals.calories ?? 2000);
+      setProtein(contextGoals.protein_target ?? contextGoals.protein ?? 150);
+      setCarbs(contextGoals.carb_target ?? contextGoals.carbs ?? 200);
+      setFat(contextGoals.fat_target ?? contextGoals.fat ?? 65);
+    }
+
+    setFullName(profile.full_name || profile.display_name || "Athlete");
+    setAge(profile.age ?? 25);
+    setGender(profile.gender || "male");
+    setHeight(profile.height_cm ?? 175);
+    setTargetWeight(profile.target_weight ?? 70);
+
+    const currentActivity = profile.activity_level;
+    if (currentActivity) {
+      if (currentActivity === "Moderate") setActivity("Moderately Active");
+      else if (currentActivity === "Active") setActivity("Very Active");
+      else if (currentActivity === "Light") setActivity("Lightly Active");
+      else if (currentActivity === "Sedentary") setActivity("Sedentary");
+      else setActivity(currentActivity as any);
+    }
+
+    const currentGoal = profile.goal_type;
+    if (currentGoal) {
+      if (currentGoal === "Lose Fat") setGoal("Weight Loss");
+      else if (currentGoal === "Gain Muscle") setGoal("Lean Muscle Gain");
+      else if (currentGoal === "Maintain") setGoal("Maintenance");
+      else setGoal(currentGoal as any);
+    }
+
+    setMealPreference(profile.diet_preference || "Non-Vegetarian");
+
+    if (weightLogs && weightLogs.length > 0) {
+      setWeight(Number(weightLogs[0].weight));
+    } else {
+      setWeight(profile.current_weight ?? 70);
+    }
+
+    const localPrefs = localStorage.getItem(`prefs_${profile.id}`);
+    if (localPrefs) {
       try {
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          router.push("/login");
-          return;
-        }
-        setUser(user);
-        setEmail(user.email || "");
-
-        // Format Member Since
-        if (user.created_at) {
-          const date = new Date(user.created_at);
-          setCreatedDate(date.toLocaleDateString("en-US", { month: "long", year: "numeric" }));
-        }
-
-        // Fetch User Profile, nutrition goals, and latest weight log in parallel
-        const [profileRes, goalRes, weightRes] = await Promise.all([
-          supabase.from("users").select("*").eq("id", user.id).maybeSingle(),
-          supabase.from("goals").select("*").eq("id", user.id).maybeSingle(),
-          supabase.from("weight_logs").select("weight").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1)
-        ]);
-
-        const profile = profileRes.data;
-        const goalData = goalRes.data;
-        const weightData = weightRes.data;
-
-        if (profile && profile.daily_calorie_target !== undefined && profile.daily_calorie_target !== null) {
-          setCalories(profile.daily_calorie_target);
-          setProtein(profile.protein_goal || 150);
-          setCarbs(profile.carbs_goal || 200);
-          setFat(profile.fat_goal || 65);
-        } else if (goalData) {
-          setCalories(goalData.calorie_target ?? goalData.calories);
-          setProtein(goalData.protein_target ?? goalData.protein);
-          setCarbs(goalData.carb_target ?? goalData.carbs);
-          setFat(goalData.fat_target ?? goalData.fat);
-        }
-
-        // 3. Load biometrics from users table primarily, falling back to Auth metadata
-        const metadata = user.user_metadata || {};
-        setFullName(profile?.full_name || profile?.display_name || metadata.display_name || metadata.full_name || "Shreya Somi");
-        setAge(profile?.age ?? (metadata.age ? Number(metadata.age) : 25));
-        setGender(profile?.gender || metadata.gender || "male");
-        setHeight(profile?.height_cm ?? (metadata.height ? Number(metadata.height) : 175));
-        setTargetWeight(profile?.target_weight ?? (metadata.target_weight ? Number(metadata.target_weight) : 70));
-        
-        // Map activity level
-        const currentActivity = profile?.activity_level || metadata.activity;
-        if (currentActivity) {
-          if (currentActivity === "Moderate") setActivity("Moderately Active");
-          else if (currentActivity === "Active") setActivity("Very Active");
-          else if (currentActivity === "Light") setActivity("Lightly Active");
-          else if (currentActivity === "Sedentary") setActivity("Sedentary");
-          else setActivity(currentActivity as any);
-        }
-
-        // Map goal type
-        const currentGoal = profile?.goal_type || metadata.goal;
-        if (currentGoal) {
-          if (currentGoal === "Lose Fat") setGoal("Weight Loss");
-          else if (currentGoal === "Gain Muscle") setGoal("Lean Muscle Gain");
-          else if (currentGoal === "Maintain") setGoal("Maintenance");
-          else setGoal(currentGoal as any);
-        }
-
-        setMealPreference(profile?.diet_preference || metadata.meal_preference || "Non-Vegetarian");
-
-        if (weightData && weightData.length > 0) {
-          setWeight(Number(weightData[0].weight));
-        } else {
-          setWeight(profile?.current_weight ?? (metadata.weight ? Number(metadata.weight) : 70));
-        }
-
-        // Personalization preferences
-        if (profile?.theme_preference) {
-          setDarkTheme(profile.theme_preference === "dark");
-        } else if (metadata.preferences) {
-          setAiCoaching(metadata.preferences.ai_coaching ?? true);
-          setWeeklyEmails(metadata.preferences.weekly_emails ?? true);
-          setMealReminders(metadata.preferences.meal_reminders ?? true);
-          setWaterReminders(metadata.preferences.water_reminders ?? true);
-          setAchievements(metadata.preferences.achievements ?? true);
-          setDarkTheme(metadata.preferences.dark_theme ?? true);
-        } else {
-          const localPrefs = localStorage.getItem(`prefs_${user.id}`);
-          if (localPrefs) {
-            try {
-              const parsed = JSON.parse(localPrefs);
-              setAiCoaching(parsed.ai_coaching ?? true);
-              setWeeklyEmails(parsed.weekly_emails ?? true);
-              setMealReminders(parsed.meal_reminders ?? true);
-              setWaterReminders(parsed.water_reminders ?? true);
-              setAchievements(parsed.achievements ?? true);
-              setDarkTheme(parsed.dark_theme ?? true);
-            } catch (e) {
-              console.error("Local preferences load issue:", e);
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Settings load error:", err);
-      } finally {
-        setLoading(false);
+        const parsed = JSON.parse(localPrefs);
+        setAiCoaching(parsed.ai_coaching ?? true);
+        setWeeklyEmails(parsed.weekly_emails ?? true);
+        setMealReminders(parsed.meal_reminders ?? true);
+        setWaterReminders(parsed.water_reminders ?? true);
+        setAchievements(parsed.achievements ?? true);
+        setDarkTheme(parsed.dark_theme ?? true);
+      } catch (e) {
+        console.error("Local preferences load issue:", e);
       }
-    };
-    loadUserSettings();
-  }, []);
+    }
+  }, [profile, contextGoals, weightLogs, contextLoading]);
+
+  const loading = contextLoading || !profile;
 
   // Save profile and goals settings
   const handleSaveSettings = async (e: React.FormEvent) => {
