@@ -9,7 +9,26 @@ CREATE TABLE IF NOT EXISTS public.users (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   email TEXT NOT NULL,
   display_name TEXT DEFAULT 'User',
-  created_at TIMESTAMPTZ DEFAULT now() NOT NULL
+  full_name TEXT,
+  avatar_url TEXT,
+  age INTEGER,
+  gender TEXT,
+  height_cm NUMERIC,
+  current_weight NUMERIC,
+  target_weight NUMERIC,
+  activity_level TEXT,
+  goal_type TEXT,
+  daily_calorie_target INTEGER DEFAULT 2000,
+  protein_goal INTEGER DEFAULT 150,
+  carbs_goal INTEGER DEFAULT 200,
+  fat_goal INTEGER DEFAULT 65,
+  diet_preference TEXT,
+  medical_conditions TEXT[] DEFAULT '{}',
+  coach_memory JSONB DEFAULT '{}'::jsonb,
+  theme_preference TEXT DEFAULT 'dark',
+  onboarding_completed BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- B. Daily Nutrition Goals (1-to-1 relationship with users)
@@ -169,6 +188,7 @@ CREATE TABLE IF NOT EXISTS public.coach_messages (
   user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
   message TEXT NOT NULL,
+  reactions JSONB DEFAULT '[]'::jsonb,
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 
@@ -182,6 +202,11 @@ CREATE POLICY "Users can view their own coach messages."
 
 CREATE POLICY "Users can insert their own coach messages."
   ON public.coach_messages FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own coach messages."
+  ON public.coach_messages FOR UPDATE
+  USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can delete their own coach messages."

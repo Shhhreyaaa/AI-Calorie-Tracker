@@ -50,16 +50,20 @@ export async function POST(request: NextRequest) {
 
     // Fetch profile, weight logs, and meals in parallel using Promise.all to optimize performance
     const [profileResult, weightResult, todayMealsResult, recentMealsResult] = await Promise.all([
-      supabase.from("users").select("daily_calorie_target, protein_goal, carbs_goal, fat_goal, goal_type, age, height_cm, current_weight, target_weight, activity_level").eq("id", user.id).maybeSingle(),
+      supabase.from("users").select("daily_calorie_target, protein_goal, carbs_goal, fat_goal, goal_type, age, height_cm, current_weight, target_weight, activity_level, diet_preference, medical_conditions, coach_memory").eq("id", user.id).maybeSingle(),
       supabase.from("weight_logs").select("weight, created_at").eq("user_id", user.id).order("created_at", { ascending: false }),
-      supabase.from("meals").select("food_name, meal_type, calories, protein, carbs, fat").eq("user_id", user.id).gte("logged_at", (localMidnight ? new Date(localMidnight) : (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })()).toISOString()),
-      supabase.from("meals").select("food_name, calories, protein, carbs, fat, logged_at, meal_type").eq("user_id", user.id).gte("logged_at", (() => { const d = new Date(); d.setDate(d.getDate() - 7); return d; })().toISOString()).order("logged_at", { ascending: false })
+      supabase.from("meals").select("food_name, meal_type, calories, protein, carbs, fat, logged_at").eq("user_id", user.id).gte("logged_at", (localMidnight ? new Date(localMidnight) : (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })()).toISOString()),
+      supabase.from("meals").select("food_name, calories, protein, carbs, fat, logged_at, meal_type").eq("user_id", user.id).gte("logged_at", (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d; })().toISOString()).order("logged_at", { ascending: false })
     ]);
 
-    const profile = profileResult.data;
-    const weightLogs = weightResult.data;
-    const todayMeals = todayMealsResult.data;
-    const recentMeals = recentMealsResult.data;
+    const profile: any = profileResult.data || {};
+    const weightLogs = weightResult.data || [];
+    const todayMeals = todayMealsResult.data || [];
+    const recentMeals = recentMealsResult.data || [];
+
+    const dietPreference = profile.diet_preference || "Non-Vegetarian";
+    const medicalConditions = profile.medical_conditions || [];
+    const savedMemory = profile.coach_memory || {};
 
     // Fallback logic for legacy goals if profile doesn't have targets
     let targetCalories = profile?.daily_calorie_target;
@@ -87,28 +91,31 @@ export async function POST(request: NextRequest) {
 
     // Format recent meals list for the prompt
     const recentMealsText = recentMeals && recentMeals.length > 0
-      ? recentMeals.map(m => `- ${m.food_name} (${m.meal_type}): ${m.calories} kcal (P: ${m.protein}g, C: ${m.carbs}g, F: ${m.fat}g) on ${new Date(m.logged_at).toLocaleDateString()}`).join("\n")
-      : "No recent meals logged in the last 7 days.";
+      ? recentMeals.slice(0, 10).map(m => `- ${m.food_name} (${m.meal_type}): ${m.calories} kcal (P: ${m.protein}g, C: ${m.carbs}g, F: ${m.fat}g) on ${new Date(m.logged_at).toLocaleDateString()}`).join("\n")
+      : "No recent meals logged.";
 
     const metadata = user.user_metadata || {};
-    const goal = profile?.goal_type || metadata.goal || "Not set";
-    const age = profile?.age || metadata.age || "Not set";
-    const height = profile?.height_cm || metadata.height || "Not set";
-    const startingWeight = profile?.current_weight || metadata.starting_weight || null;
-    const targetWeight = profile?.target_weight || metadata.target_weight || null;
-    const activity = profile?.activity_level || metadata.activity || "Not set";
+    const goal = profile?.goal_type || metadata.goal || "Maintenance";
+    const age = profile?.age || metadata.age || 25;
+    const height = profile?.height_cm || metadata.height || 175;
+    const gender = profile?.gender || metadata.gender || "male";
+    const startingWeight = profile?.current_weight || metadata.starting_weight || 75;
+    const targetWeight = profile?.target_weight || metadata.target_weight || 70;
+    const activity = profile?.activity_level || metadata.activity || "Moderately Active";
 
     const currentWeight = weightLogs && weightLogs.length > 0 ? Number(weightLogs[0].weight) : startingWeight;
     const totalWeightLogs = weightLogs?.length || 0;
 
-    // Calculate exact weekly weight change
+    // Calculate weekly weight change from logs
     let weeklyWeightChangeText = "No weight logged yet or insufficient data.";
+    let weeklyPace = 0.5; // fallback pace (kg/week)
     if (weightLogs && weightLogs.length >= 2) {
       const latestW = Number(weightLogs[0].weight);
       const sevenDaysAgoTime = new Date().getTime() - 7 * 24 * 60 * 60 * 1000;
       const pastLog = weightLogs.find(wl => new Date(wl.created_at).getTime() <= sevenDaysAgoTime) || weightLogs[weightLogs.length - 1];
       if (pastLog) {
         const change = latestW - Number(pastLog.weight);
+        weeklyPace = Math.abs(change);
         if (change < 0) {
           weeklyWeightChangeText = `Weight dropped ${Math.abs(change).toFixed(1)}kg this week.`;
         } else if (change > 0) {
@@ -119,63 +126,212 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Construct the protein deficit text
-    const proteinDeficitText = remainingProtein > 0 
-      ? `User is exactly ${remainingProtein}g short of protein today.` 
-      : "User has hit their daily protein target.";
+    // Dynamic Behavioral Memory extraction
+    const foodCounts: Record<string, number> = {};
+    recentMeals.forEach((m: any) => {
+      const name = m.food_name.trim();
+      foodCounts[name] = (foodCounts[name] || 0) + 1;
+    });
+    const favoriteFoods = Object.entries(foodCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([name]) => name);
+
+    const mealTypeCounts: Record<string, number> = {};
+    recentMeals.forEach((m: any) => {
+      const type = m.meal_type;
+      mealTypeCounts[type] = (mealTypeCounts[type] || 0) + 1;
+    });
+
+    const dailyProtein: Record<string, number> = {};
+    const todayStr = new Date().toDateString();
+    recentMeals.forEach((m: any) => {
+      const dateStr = new Date(m.logged_at).toDateString();
+      if (dateStr !== todayStr) {
+        dailyProtein[dateStr] = (dailyProtein[dateStr] || 0) + m.protein;
+      }
+    });
+    const lowProteinDays = Object.values(dailyProtein).filter(p => p < targetProtein).length;
+    const totalDaysLogged = Object.keys(dailyProtein).length;
+    const proteinStrugglesText = totalDaysLogged > 0 && (lowProteinDays / totalDaysLogged) > 0.5
+      ? `User struggles with hitting protein target (missed target on ${lowProteinDays}/${totalDaysLogged} logged days).`
+      : `User hits protein goals regularly.`;
+
+    // Mathematical Body Analysis calculations
+    const heightM = height / 100;
+    const bmi = currentWeight / (heightM * heightM);
+    const healthyWeightMin = Math.round(18.5 * heightM * heightM);
+    const healthyWeightMax = Math.round(24.9 * heightM * heightM);
+
+    const heightInches = height / 2.54;
+    const inchesOver5Feet = Math.max(0, heightInches - 60);
+    let idealWeight = gender === "male"
+      ? 50.0 + 2.3 * inchesOver5Feet
+      : 45.5 + 2.3 * inchesOver5Feet;
+    idealWeight = Math.round(idealWeight);
+
+    const uBmr = 10 * currentWeight + 6.25 * height - 5 * age + (gender === "male" ? 5 : -161);
+    const activityMultipliers: Record<string, number> = {
+      "Sedentary": 1.2,
+      "Lightly Active": 1.375,
+      "Moderately Active": 1.55,
+      "Very Active": 1.725,
+      "Athlete": 1.9
+    };
+    const maintenanceCalories = Math.round(uBmr * (activityMultipliers[activity] || 1.55));
+    const fatLossCalories = Math.max(1200, Math.round(maintenanceCalories - 500));
+    const muscleGainCalories = Math.round(maintenanceCalories + 300);
+
+    let calculatedProtein = Math.round(goal === "Fat Loss" ? 2.0 * currentWeight : (goal === "Muscle Gain" ? 2.2 * currentWeight : 1.8 * currentWeight));
+    let calculatedFat = Math.round((targetCalories * 0.25) / 9);
+    let calculatedCarbs = Math.round((targetCalories - (calculatedProtein * 4 + calculatedFat * 9)) / 4);
+
+    let waterTarget = (35 * currentWeight) / 1000;
+    if (activity === "Very Active" || activity === "Athlete") waterTarget += 1.0;
+    else if (activity === "Moderately Active") waterTarget += 0.5;
+    waterTarget = Number(waterTarget.toFixed(1));
+
+    const userMessageContentLower = (userMessageContent || "").toLowerCase().trim();
+    const isAnalyzeBody = userMessageContentLower === "analyze my body" || userMessageContentLower.includes("analyze my body");
+    const isAnalyzeDay = userMessageContentLower === "analyze my day" || userMessageContentLower.includes("analyze my day");
+
+    // Medical conditions adaptations
+    const medicalGuidelines = [];
+    if (medicalConditions.includes("Diabetes")) {
+      medicalGuidelines.push("- Adapt recommendations for Diabetes: Focus on lower refined carbs, higher dietary fiber, and low GI (Glycemic Index) foods. Prioritize blood sugar stability.");
+    }
+    if (medicalConditions.includes("Hypertension")) {
+      medicalGuidelines.push("- Adapt recommendations for Hypertension: Recommend lower sodium intake and potassium-rich foods (e.g. leafy greens, bananas, avocados).");
+    }
+    if (medicalConditions.includes("High Cholesterol")) {
+      medicalGuidelines.push("- Adapt recommendations for High Cholesterol: Focus on reducing saturated fats and increasing soluble dietary fiber (e.g. oats, legumes, berries).");
+    }
+    if (medicalConditions.includes("PCOS")) {
+      medicalGuidelines.push("- Adapt recommendations for PCOS: Prioritize recommendations that support stable blood sugar and insulin sensitivity (e.g., balanced meals combining protein, healthy fats, and fiber-rich slow carbs).");
+    }
+    if (medicalConditions.includes("Hypothyroidism")) {
+      medicalGuidelines.push("- Adapt recommendations for Hypothyroidism: Recommend balanced energy distribution, ensuring adequate selenium, zinc, and iodine-dense whole food options.");
+    }
+    if (medicalConditions.includes("Kidney Disease")) {
+      medicalGuidelines.push("- Adapt recommendations for Kidney Disease: Advise moderate, controlled protein intake to minimize kidney strain, and closely watch phosphorus and sodium levels.");
+    }
+    if (medicalConditions.includes("Other")) {
+      medicalGuidelines.push("- Adapt recommendations: Take into account any general health conditions the user mentions, recommending clean whole foods and consulting a physician.");
+    }
+
+    const medicalGuidelinesText = medicalGuidelines.length > 0
+      ? medicalGuidelines.join("\n")
+      : "No specific medical conditions logged.";
+
+    // Medical disclaimer
+    const hasMedicalConditions = medicalConditions.length > 0;
 
     // 7. Construct dynamic system prompt with user context
     const systemPrompt = `
-You are an expert AI Nutrition Coach, dietitian, and supportive fitness guide. Your goal is to help the user achieve their health and calorie goals.
+You are an expert AI Nutrition Coach, dietitian, and supportive fitness guide. Your goal is to help the user achieve their health, diet, and fitness goals.
 
-Here is the current real-time nutritional context for the user:
-- User Email: ${user.email}
-- Onboarding Biometrics & Goals:
-  * Goal Target: ${goal}
+Here is the current real-time health profile, nutritional context, and memory for the user:
+- Profile & Goals:
+  * User Email: ${user.email}
   * Age: ${age} years old
+  * Gender: ${gender}
   * Height: ${height} cm
-  * Starting Weight: ${startingWeight ? `${startingWeight} kg` : "Not set"}
+  * Current Weight: ${currentWeight ? `${currentWeight} kg` : "Not set"}
   * Target Weight: ${targetWeight ? `${targetWeight} kg` : "Not set"}
   * Activity Index: ${activity}
-- Weight Track Trends:
-  * Current Weight: ${currentWeight ? `${currentWeight} kg` : "No weight logged yet"}
-  * Starting Weight: ${startingWeight ? `${startingWeight} kg` : "N/A"}
-  * Logged Entries Count: ${totalWeightLogs}
-  * Weight Progress: ${startingWeight && currentWeight ? `${(startingWeight - currentWeight).toFixed(1)} kg lost` : "N/A"}
-  * Weekly Trend: ${weeklyWeightChangeText}
+  * Primary Goal: ${goal}
+  * Diet Preference: ${dietPreference}
+  * Medical Conditions: ${medicalConditions.join(", ") || "None"}
 
-- Daily Goal Targets:
-  * Calories: ${targetCalories} kcal
-  * Protein: ${targetProtein}g
-  * Carbs: ${targetCarbs}g
-  * Fat: ${targetFat}g
+- Medical Conditions Adaptation Guidelines (CRITICAL):
+${medicalGuidelinesText}
+${hasMedicalConditions ? "Always append the medical disclaimer exactly at the very end of your response." : ""}
+
+- Dynamically Analyzed Long-Term Memory (Behavior Logs):
+  * Favorite Foods: ${favoriteFoods.join(", ") || "None"}
+  * Protein Struggles Context: ${proteinStrugglesText}
+  * Weight Progress Trend: ${weeklyWeightChangeText}
+  * Conversation History Memory: ${JSON.stringify(savedMemory.history_notes || "None")}
+  * User specific memory notes: ${JSON.stringify(savedMemory.user_notes || "None")}
+
+- Mathematical calculations for user's body parameters (Mifflin MSJ):
+  * BMI: ${bmi.toFixed(1)}
+  * Healthy Weight Range: ${healthyWeightMin} - ${healthyWeightMax} kg
+  * Ideal Weight Estimate: ${idealWeight} kg
+  * Maintenance Calories (TDEE): ${maintenanceCalories} kcal/day
+  * Fat Loss Calories Target: ${fatLossCalories} kcal/day
+  * Muscle Gain Calories Target: ${muscleGainCalories} kcal/day
+  * Custom target calories: ${targetCalories} kcal
+  * Macro Targets: Protein: ${calculatedProtein}g, Carbs: ${calculatedCarbs}g, Fat: ${calculatedFat}g
+  * Water Intake Target: ${waterTarget}L/day
 
 - Today's Consumed Totals:
   * Calories: ${consumedCalories} kcal (${remainingCalories} kcal remaining)
   * Protein: ${consumedProtein}g (${remainingProtein}g remaining)
   * Carbs: ${consumedCarbs}g (${remainingCarbs}g remaining)
   * Fat: ${consumedFat}g (${remainingFat}g remaining)
-  * Protein Deficit Context: ${proteinDeficitText}
 
 - Today's Logged Meals:
 ${todayMeals && todayMeals.length > 0 
   ? todayMeals.map(m => `  * ${m.food_name} (${m.meal_type}): ${m.calories} kcal (P: ${m.protein}g, C: ${m.carbs}g, F: ${m.fat}g)`).join("\n")
   : "  * No meals logged today yet."}
 
-- Recent Logs (Past 7 Days):
+- Recent Logs (Past 30 Days):
 ${recentMealsText}
 
 Instruction Guidelines:
-1. Provide highly personalized, actionable advice based on the user's goals, remaining macro targets, and recent eating patterns.
-2. Be supportive, concise, energetic, and professional.
-3. INSTEAD OF GENERIC CHAT, provide specific, mathematically precise recommendations based on the calculations.
-   - If they have a protein shortfall, tell them exactly how much they are short of, and suggest a specific food option to resolve it (e.g. "You're 22g short of protein today. Add 100g chicken breast tonight.")
-   - If their weight dropped or increased, state the trend directly and give advice (e.g. "Weight dropped 0.7kg this week. Keep calories unchanged.")
-4. If they ask about hitting protein, suggest specific high-protein foods or snacks that fit their remaining calorie/fat budgets.
-5. If they ask if they are eating enough, evaluate their calorie targets vs actual intake, and comment on nutritional density.
-6. If they ask for dinner/meal suggestions, look at what they have already eaten today and suggest a meal that balances out their remaining macros. For example, if they are low on protein and high on carbs, suggest a high-protein, low-carb meal.
-7. Keep recommendations realistic, focusing on whole foods.
-8. Respond using clean, simple markdown. Do not include markdown code block syntax around the entire text, just normal text styling.
+1. Provide highly personalized, actionable advice based on the user's goals, remaining macro targets, diet preference, medical conditions, and recent eating patterns.
+2. Be supportive, concise, energetic, and professional. Do not diagnose disease or prescribe treatments.
+3. If they ask "Analyze my body" (or click the Analyze My Body button), calculate and explain: BMI, healthy weight range, ideal weight, maintenance calories, fat loss calories, muscle gain calories, protein/carb/fat targets, and water intake. And include the custom weight and forecast visual card JSON blocks.
+4. To show visual progress, you MUST include one or more custom JSON code blocks in your responses when relevant to the user's query:
+
+   - **Protein progress card** (when user is short of protein, asks about protein, or logs protein-heavy foods):
+\`\`\`card-protein
+{
+  "current": ${consumedProtein},
+  "target": ${targetProtein},
+  "need": ${remainingProtein},
+  "sources": ["Chicken Breast", "Greek Yogurt", "Whey Protein"]
+}
+\`\`\`
+
+   - **Weight Goal card** (when body analysis is triggered, or user asks about weight progress):
+\`\`\`card-weight
+{
+  "current": ${currentWeight},
+  "target": ${targetWeight},
+  "pace": ${weeklyPace.toFixed(1)},
+  "weeks": ${goal === "Fat Loss" ? Math.max(1, Math.ceil(Math.abs(currentWeight - targetWeight) / 0.5)) : Math.max(1, Math.ceil(Math.abs(currentWeight - targetWeight) / 0.25))}
+}
+\`\`\`
+
+   - **Nutrition progress card** (when user asks "Analyze my day" or asks about remaining calories/macros):
+\`\`\`card-nutrition
+{
+  "calories": ${consumedCalories},
+  "caloriesTarget": ${targetCalories},
+  "protein": ${consumedProtein},
+  "proteinTarget": ${targetProtein},
+  "carbs": ${consumedCarbs},
+  "carbsTarget": ${targetCarbs},
+  "fat": ${consumedFat},
+  "fatTarget": ${targetFat}
+}
+\`\`\`
+
+   - **Progress Forecast card** (when user triggers "Analyze my body", or asks about weight predictions/forecasts):
+\`\`\`card-forecast
+{
+  "trend": ${goal === "Fat Loss" ? -0.5 : (goal === "Muscle Gain" ? 0.25 : 0)},
+  "days30": ${goal === "Fat Loss" ? (currentWeight - 2).toFixed(1) : (goal === "Muscle Gain" ? (currentWeight + 1).toFixed(1) : currentWeight.toFixed(1))},
+  "days60": ${goal === "Fat Loss" ? (currentWeight - 4).toFixed(1) : (goal === "Muscle Gain" ? (currentWeight + 2).toFixed(1) : currentWeight.toFixed(1))},
+  "days90": ${goal === "Fat Loss" ? (currentWeight - 6).toFixed(1) : (goal === "Muscle Gain" ? (currentWeight + 3).toFixed(1) : currentWeight.toFixed(1))}
+}
+\`\`\`
+
+5. Respond using clean markdown. Surround the custom cards in the triple backtick tags as shown above. The UI will parse and render them.
+6. If the user has a medical condition, ALWAYS append this exact disclaimer at the end:
+"Educational guidance only. Not medical advice. Consult a healthcare professional for diagnosis or treatment."
 `;
 
     // 8. Call Gemini client with fallback models and retry logic
@@ -299,6 +455,59 @@ Based on this, ${
           }
         } catch (dbErr) {
           console.error("Database save exception from stream:", dbErr);
+        }
+
+        // Analyze conversation and update coach memory (Phase 5)
+        try {
+          const updatedMemory = { ...savedMemory };
+          const msg = userMessageContentLower;
+          if (msg.includes("vegetarian")) {
+            updatedMemory.diet_preference = "Vegetarian";
+          } else if (msg.includes("vegan")) {
+            updatedMemory.diet_preference = "Vegan";
+          } else if (msg.includes("keto")) {
+            updatedMemory.diet_preference = "Keto";
+          } else if (msg.includes("low carb")) {
+            updatedMemory.diet_preference = "Low Carb";
+          }
+          
+          const foodKeywords = ["love", "like", "favorite food", "prefer"];
+          foodKeywords.forEach(keyword => {
+            if (msg.includes(keyword)) {
+              const foods = ["salmon", "chicken", "eggs", "tofu", "paneer", "steak", "rice", "sweet potato", "greek yogurt", "protein shake", "oats"];
+              foods.forEach(f => {
+                if (msg.includes(f)) {
+                  if (!updatedMemory.favorite_foods) updatedMemory.favorite_foods = [];
+                  if (!updatedMemory.favorite_foods.includes(f)) {
+                    updatedMemory.favorite_foods.push(f);
+                  }
+                }
+              });
+            }
+          });
+
+          if (msg.includes("struggle with protein") || msg.includes("hard to get protein") || msg.includes("too much protein") || msg.includes("protein is hard")) {
+            updatedMemory.protein_struggles = "User reports finding it difficult to hit daily protein targets.";
+          }
+
+          // Also store a short summary or last topic notes
+          if (!updatedMemory.history_notes) updatedMemory.history_notes = [];
+          const dateStr = new Date().toLocaleDateString();
+          updatedMemory.history_notes.push(`Chatted about: "${userMessageContent.slice(0, 50)}..." on ${dateStr}`);
+          if (updatedMemory.history_notes.length > 5) {
+            updatedMemory.history_notes = updatedMemory.history_notes.slice(-5); // keep last 5 notes
+          }
+
+          // Save memory back to Supabase users table
+          const { error: memErr } = await supabase
+            .from("users")
+            .update({ coach_memory: updatedMemory })
+            .eq("id", user.id);
+          if (memErr) {
+            console.error("Failed to update coach memory in DB:", memErr);
+          }
+        } catch (memEx) {
+          console.error("Memory saving exception:", memEx);
         }
 
         controller.close();

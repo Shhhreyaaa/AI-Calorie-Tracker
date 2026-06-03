@@ -28,17 +28,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 
 type GoalType = 
-  | "Lose Fat" 
-  | "Build Muscle" 
-  | "Body Recomposition" 
-  | "Improve Athletic Performance" 
-  | "General Health" 
-  | "Healthy Weight Gain" 
-  | "Improve Energy & Focus" 
+  | "Fat Loss" 
+  | "Muscle Gain" 
+  | "Recomposition" 
+  | "Maintenance" 
   | "Custom Goal";
 
 type ActivityLevel = "Sedentary" | "Lightly Active" | "Moderately Active" | "Very Active" | "Athlete";
-type DietPreference = "Non Vegetarian" | "Vegetarian" | "Vegan" | "Eggetarian" | "No Preference";
+type DietPreference = "Vegetarian" | "Vegan" | "Non-Vegetarian" | "Keto" | "Low Carb";
 type FitnessExperience = "Beginner" | "Intermediate" | "Advanced";
 type MotivationType = "Looking Better" | "Building Strength" | "Improving Health" | "Sports Performance" | "Confidence" | "Discipline";
 
@@ -60,7 +57,7 @@ export default function OnboardingPage() {
 
   // --- Step 1: Goals & Avatars ---
   const [selectedAvatar, setSelectedAvatar] = useState<string>("Fat Loss");
-  const [goal, setGoal] = useState<GoalType>("Lose Fat");
+  const [goal, setGoal] = useState<GoalType>("Fat Loss");
   const [customGoal, setCustomGoal] = useState<string>("");
 
   // --- Step 2: Demographics ---
@@ -73,7 +70,8 @@ export default function OnboardingPage() {
 
   // --- Step 3: Lifestyle & Diet ---
   const [activity, setActivity] = useState<ActivityLevel>("Moderately Active");
-  const [diet, setDiet] = useState<DietPreference>("Non Vegetarian");
+  const [diet, setDiet] = useState<DietPreference>("Non-Vegetarian");
+  const [medicalConditions, setMedicalConditions] = useState<string[]>([]);
 
   // --- Step 4: Experience & Motivation ---
   const [experience, setExperience] = useState<FitnessExperience>("Intermediate");
@@ -91,23 +89,18 @@ export default function OnboardingPage() {
 
   // Goal Avatars list
   const goalAvatars: GoalAvatar[] = [
-    { key: "Fat Loss", name: "Fat Loss", emoji: "🔥", desc: "Lean definition", targetGoal: "Lose Fat" },
-    { key: "Bodybuilder", name: "Bodybuilder", emoji: "💪", desc: "Maximum hypertrophy", targetGoal: "Build Muscle" },
-    { key: "Lean Athlete", name: "Lean Athlete", emoji: "⚡", desc: "Power & agility", targetGoal: "Body Recomposition" },
-    { key: "Powerlifter", name: "Powerlifter", emoji: "🏋️", desc: "Raw strength", targetGoal: "Build Muscle" },
-    { key: "Runner", name: "Runner", emoji: "🏃‍♂️", desc: "Cardio endurance", targetGoal: "Improve Athletic Performance" },
-    { key: "Wellness", name: "Wellness", emoji: "🧘", desc: "Longevity & balance", targetGoal: "General Health" }
+    { key: "Fat Loss", name: "Fat Loss", emoji: "🔥", desc: "Lean definition", targetGoal: "Fat Loss" },
+    { key: "Bodybuilder", name: "Bodybuilder", emoji: "💪", desc: "Maximum hypertrophy", targetGoal: "Muscle Gain" },
+    { key: "Lean Athlete", name: "Lean Athlete", emoji: "⚡", desc: "Power & agility", targetGoal: "Recomposition" },
+    { key: "Wellness", name: "Wellness", emoji: "🧘", desc: "Longevity & balance", targetGoal: "Maintenance" }
   ];
 
   // Goals list
   const goalOptions = [
-    { type: "Lose Fat" as GoalType, icon: Flame, title: "Lose Fat", desc: "Reduce body fat while preserving muscle." },
-    { type: "Build Muscle" as GoalType, icon: TrendingUp, title: "Build Muscle", desc: "Maximize lean muscle growth and strength." },
-    { type: "Body Recomposition" as GoalType, icon: Activity, title: "Body Recomposition", desc: "Lose fat and gain muscle simultaneously." },
-    { type: "Improve Athletic Performance" as GoalType, icon: Zap, title: "Improve Athletic Performance", desc: "Optimize endurance, speed, and recovery." },
-    { type: "General Health" as GoalType, icon: Heart, title: "General Health", desc: "Focus on longevity, energy, and healthy habits." },
-    { type: "Healthy Weight Gain" as GoalType, icon: Scale, title: "Healthy Weight Gain", desc: "Gain weight gradually with quality nutrition." },
-    { type: "Improve Energy & Focus" as GoalType, icon: Brain, title: "Improve Energy & Focus", desc: "Nutrition optimized for productivity and mental focus." },
+    { type: "Fat Loss" as GoalType, icon: Flame, title: "Fat Loss", desc: "Reduce body fat while preserving muscle." },
+    { type: "Muscle Gain" as GoalType, icon: TrendingUp, title: "Muscle Gain", desc: "Maximize lean muscle growth and strength." },
+    { type: "Recomposition" as GoalType, icon: Activity, title: "Body Recomposition", desc: "Lose fat and gain muscle simultaneously." },
+    { type: "Maintenance" as GoalType, icon: Heart, title: "Maintenance", desc: "Focus on longevity, energy, and healthy habits." },
     { type: "Custom Goal" as GoalType, icon: Target, title: "Custom Goal", desc: "Define your own customized health target." }
   ];
 
@@ -199,33 +192,21 @@ export default function OnboardingPage() {
     let targetProtein = 150;
     let targetFat = 65;
 
-    if (goal === "Lose Fat") {
+    if (goal === "Fat Loss") {
       targetCalories = Math.round(tdee - 500);
       if (targetCalories < 1200) targetCalories = 1200; // safe floor
       targetProtein = Math.round(weight * 2.0); // 2.0g per kg
       targetFat = Math.round(weight * 0.8);     // 0.8g per kg
-    } else if (goal === "Build Muscle") {
+    } else if (goal === "Muscle Gain") {
       targetCalories = Math.round(tdee + 300);
       targetProtein = Math.round(weight * 2.2); // 2.2g per kg
       targetFat = Math.round(weight * 1.0);     // 1.0g per kg
-    } else if (goal === "Body Recomposition") {
+    } else if (goal === "Recomposition") {
       targetCalories = Math.round(tdee);
       targetProtein = Math.round(weight * 2.2); // high protein recomp
       targetFat = Math.round(weight * 0.9);
-    } else if (goal === "Improve Athletic Performance") {
-      targetCalories = Math.round(tdee);
-      targetProtein = Math.round(weight * 1.8);
-      targetFat = Math.round(weight * 0.9);
-    } else if (goal === "Healthy Weight Gain") {
-      targetCalories = Math.round(tdee + 400);
-      targetProtein = Math.round(weight * 1.8);
-      targetFat = Math.round(weight * 1.0);
-    } else if (goal === "Improve Energy & Focus") {
-      targetCalories = Math.round(tdee);
-      targetProtein = Math.round(weight * 2.0); // higher protein & healthy fats
-      targetFat = Math.round(weight * 1.1);
     } else {
-      // General Health & Custom Goal
+      // Maintenance & Custom Goal
       targetCalories = Math.round(tdee);
       targetProtein = Math.round(weight * 1.8);
       targetFat = Math.round(weight * 0.9);
@@ -289,6 +270,8 @@ export default function OnboardingPage() {
           protein_goal: calculated.protein,
           carbs_goal: calculated.carbs,
           fat_goal: calculated.fat,
+          diet_preference: diet,
+          medical_conditions: medicalConditions,
           onboarding_completed: true,
           updated_at: new Date().toISOString()
         })
@@ -330,6 +313,7 @@ export default function OnboardingPage() {
           goal: goalName,
           target_weight: Number(targetWeight),
           meal_preference: diet,
+          medical_conditions: medicalConditions,
           onboarding_completed: true
         }
       });
@@ -684,11 +668,11 @@ export default function OnboardingPage() {
                 <label className="text-[9px] text-slate-450 font-bold uppercase tracking-wider block px-1">Diet Preference</label>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[10px] font-black">
                   {[
-                    { key: "Non Vegetarian" as DietPreference, label: "🍗 Non-Veg" },
                     { key: "Vegetarian" as DietPreference, label: "🥦 Veg" },
                     { key: "Vegan" as DietPreference, label: "🌱 Vegan" },
-                    { key: "Eggetarian" as DietPreference, label: "🥚 Eggetarian" },
-                    { key: "No Preference" as DietPreference, label: "🌍 None" }
+                    { key: "Non-Vegetarian" as DietPreference, label: "🍗 Non-Veg" },
+                    { key: "Keto" as DietPreference, label: "🥑 Keto" },
+                    { key: "Low Carb" as DietPreference, label: "🥩 Low Carb" }
                   ].map((item) => {
                     const isSelected = diet === item.key;
                     return (
@@ -699,6 +683,44 @@ export default function OnboardingPage() {
                         className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer leading-tight truncate ${
                           isSelected
                             ? "bg-white text-black border-white shadow-md"
+                            : "bg-slate-950/60 border-white/5 text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Medical Conditions selection */}
+              <div className="space-y-2">
+                <label className="text-[9px] text-slate-450 font-bold uppercase tracking-wider block px-1">Medical Conditions (Select all that apply)</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-black">
+                  {[
+                    { key: "Diabetes", label: "🍬 Diabetes" },
+                    { key: "Hypertension", label: "🩺 Hypertension" },
+                    { key: "High Cholesterol", label: "🍳 Cholesterol" },
+                    { key: "PCOS", label: "🌸 PCOS" },
+                    { key: "Hypothyroidism", label: "🦋 Thyroid" },
+                    { key: "Kidney Disease", label: "💧 Kidney" },
+                    { key: "Other", label: "❓ Other" }
+                  ].map((item) => {
+                    const isSelected = medicalConditions.includes(item.key);
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setMedicalConditions(prev => prev.filter(c => c !== item.key));
+                          } else {
+                            setMedicalConditions(prev => [...prev, item.key]);
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer leading-tight truncate ${
+                          isSelected
+                            ? "bg-purple-650/45 text-white border-purple-500 shadow-md"
                             : "bg-slate-950/60 border-white/5 text-slate-400 hover:text-white"
                         }`}
                       >

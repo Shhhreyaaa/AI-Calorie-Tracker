@@ -33,9 +33,9 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/lib/context/AppContext";
 
-type GoalType = "Weight Loss" | "Lean Muscle Gain" | "Maintenance" | "Body Recomposition";
+type GoalType = "Fat Loss" | "Muscle Gain" | "Recomposition" | "Maintenance";
 type ActivityLevel = "Sedentary" | "Lightly Active" | "Moderately Active" | "Very Active";
-type MealPreference = "Vegetarian" | "Non-Vegetarian" | "Vegan";
+type MealPreference = "Vegetarian" | "Vegan" | "Non-Vegetarian" | "Keto" | "Low Carb";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -53,8 +53,9 @@ export default function SettingsPage() {
   const [weight, setWeight] = useState(75); // kg (current)
   const [targetWeight, setTargetWeight] = useState(70); // kg
   const [activity, setActivity] = useState<ActivityLevel>("Moderately Active");
-  const [goal, setGoal] = useState<GoalType>("Lean Muscle Gain");
+  const [goal, setGoal] = useState<GoalType>("Muscle Gain");
   const [mealPreference, setMealPreference] = useState<MealPreference>("Non-Vegetarian");
+  const [medicalConditions, setMedicalConditions] = useState<string[]>([]);
   const [createdDate, setCreatedDate] = useState("June 2026");
 
   // Daily nutrition targets (from goals table)
@@ -115,13 +116,15 @@ export default function SettingsPage() {
 
     const currentGoal = profile.goal_type;
     if (currentGoal) {
-      if (currentGoal === "Lose Fat") setGoal("Weight Loss");
-      else if (currentGoal === "Gain Muscle") setGoal("Lean Muscle Gain");
-      else if (currentGoal === "Maintain") setGoal("Maintenance");
+      if (currentGoal === "Lose Fat" || currentGoal === "Weight Loss" || currentGoal === "Fat Loss") setGoal("Fat Loss");
+      else if (currentGoal === "Gain Muscle" || currentGoal === "Lean Muscle Gain" || currentGoal === "Muscle Gain" || currentGoal === "Build Muscle") setGoal("Muscle Gain");
+      else if (currentGoal === "Maintain" || currentGoal === "Maintenance" || currentGoal === "General Health") setGoal("Maintenance");
+      else if (currentGoal === "Body Recomposition" || currentGoal === "Recomposition") setGoal("Recomposition");
       else setGoal(currentGoal as any);
     }
 
     setMealPreference(profile.diet_preference || "Non-Vegetarian");
+    setMedicalConditions(profile.medical_conditions || []);
 
     if (weightLogs && weightLogs.length > 0) {
       setWeight(Number(weightLogs[0].weight));
@@ -240,6 +243,8 @@ export default function SettingsPage() {
         target_weight: Number(targetWeight),
         activity_level: activity,
         goal_type: goal,
+        diet_preference: mealPreference,
+        medical_conditions: medicalConditions,
         daily_calorie_target: Number(calories),
         protein_goal: Number(protein),
         carbs_goal: Number(carbs),
@@ -338,6 +343,7 @@ export default function SettingsPage() {
           goal,
           target_weight: Number(targetWeight),
           meal_preference: mealPreference,
+          medical_conditions: medicalConditions,
           preferences: {
             ai_coaching: aiCoaching,
             weekly_emails: weeklyEmails,
@@ -846,10 +852,10 @@ DAILY TARGET METRICS:
                   onChange={(e) => setGoal(e.target.value as any)}
                   className="w-full glass-input rounded-xl px-4 py-2.5 outline-none text-white focus:border-brand-green text-xs bg-slate-950"
                 >
-                  <option value="Weight Loss">Weight Loss</option>
-                  <option value="Lean Muscle Gain">Lean Muscle Gain</option>
+                  <option value="Fat Loss">Fat Loss</option>
+                  <option value="Muscle Gain">Muscle Gain</option>
+                  <option value="Recomposition">Recomposition</option>
                   <option value="Maintenance">Maintenance</option>
-                  <option value="Body Recomposition">Body Recomposition</option>
                 </select>
               </div>
 
@@ -1124,10 +1130,50 @@ DAILY TARGET METRICS:
               onChange={setMealPreference}
               options={[
                 { key: "Vegetarian", label: "Vegetarian", desc: "Plant foods & dairy" },
-                { key: "Non-Vegetarian", label: "Non-Vegetarian", desc: "Includes fish & poultry" },
-                { key: "Vegan", label: "Vegan", desc: "100% plant-based inputs" }
+                { key: "Vegan", label: "Vegan", desc: "100% plant-based inputs" },
+                { key: "Non-Vegetarian", label: "Non-Vegetarian", desc: "Includes fish & meat" },
+                { key: "Keto", label: "Keto", desc: "High fat, low carb split" },
+                { key: "Low Carb", label: "Low Carb", desc: "Reduced carbohydrates" }
               ]}
             />
+
+            {/* Medical Conditions Selector */}
+            <div className="space-y-2">
+              <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Medical Conditions</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-bold">
+                {[
+                  { key: "Diabetes", label: "🍬 Diabetes" },
+                  { key: "Hypertension", label: "🩺 Hypertension" },
+                  { key: "High Cholesterol", label: "🍳 Cholesterol" },
+                  { key: "PCOS", label: "🌸 PCOS" },
+                  { key: "Hypothyroidism", label: "🦋 Thyroid" },
+                  { key: "Kidney Disease", label: "💧 Kidney" },
+                  { key: "Other", label: "❓ Other" }
+                ].map((item) => {
+                  const isSelected = medicalConditions.includes(item.key);
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) {
+                          setMedicalConditions(prev => prev.filter(c => c !== item.key));
+                        } else {
+                          setMedicalConditions(prev => [...prev, item.key]);
+                        }
+                      }}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer leading-tight truncate ${
+                        isSelected
+                          ? "bg-purple-650/45 text-white border-purple-500 shadow-md animate-fade-in"
+                          : "bg-slate-950/60 border-white/5 text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           {/* PRIVACY & DATA */}
